@@ -20,7 +20,7 @@
 		{
 			"name" : "lut",
 			"branch" : "master",
-			"origin" : "../lut"
+			"origin" : "C:\\Users\\brainsandwich\\Documents\\dev\\polypack\\lut"
 		}
 	]
 }
