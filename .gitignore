@@ -1,2 +1,5 @@
-build
+build/
+external/
 *.o
+gl3w.c
+include/GL/

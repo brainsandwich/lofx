@@ -1,6 +1,6 @@
 #pragma once
 
-#include "lut.hpp"
+#include "LUT/lut.hpp"
 
 #include <GL/gl3w.h>
 

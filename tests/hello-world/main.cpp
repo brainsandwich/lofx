@@ -1,4 +1,4 @@
-#include "lut.hpp"
+#include "LUT/lut.hpp"
 #include "LOFX/lofx.hpp"
 
 struct BufferGeometry {
@@ -100,7 +100,6 @@ const BufferGeometry quad = BufferGeometry(
 );
 
 #include <thread>
-#include "storage.hpp"
 
 struct Packet {
 	uint8_t* data = nullptr;
