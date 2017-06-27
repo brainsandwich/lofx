@@ -1,0 +1,26 @@
+{
+	"path" : "external",
+	"packages" :
+	[
+		{
+			"name" : "glfw",
+			"version" : "3.2.1",
+			"origin" : "https://github.com/glfw/glfw.git"
+		},
+		{
+			"name" : "gl3w",
+			"branch" : "master",
+			"origin" : "https://github.com/skaslev/gl3w.git"
+		},
+		{
+			"name" : "glm",
+			"version" : "0.9.8.4",
+			"origin" : "https://github.com/g-truc/glm.git"
+		},
+		{
+			"name" : "lut",
+			"branch" : "master",
+			"origin" : "../lut"
+		}
+	]
+}

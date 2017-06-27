@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.8)
 project(LOFX VERSION 0.1.0 LANGUAGES CXX)
+cmake_policy(SET CMP0048 NEW)
 
 set(LOFX_EXTERNALS_DIR ${PROJECT_SOURCE_DIR}/external)
 
@@ -15,8 +16,8 @@ set_target_properties (lofx PROPERTIES FOLDER LOFX/CORE)
 target_include_directories(lofx PUBLIC ${LOFX_INCLUDEDIR})
 
 # FETCH DEPENDENCIES
-message(STATUS "cmd: initdeps.bat")
-execute_process(COMMAND "initdeps.bat"
+message(STATUS "cmd: python deps_fetcher.py")
+execute_process(COMMAND "python" "./deps_fetcher.py"
 	WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
 	RESULT_VARIABLE fetch_result
 )
