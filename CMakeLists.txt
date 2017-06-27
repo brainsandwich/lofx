@@ -39,8 +39,8 @@ add_subdirectory(${LOFX_EXTERNALS_DIR}/glfw)
 target_link_libraries(lofx glfw)
 
 # GL3W
-# add_subdirectory(${LOFX_EXTERNALS_DIR}/gl3w)
-# target_link_libraries(lofx gl3w)
+add_subdirectory(${LOFX_EXTERNALS_DIR}/gl3w)
+target_link_libraries(lofx gl3w)
 
 # GLM
 add_subdirectory(${LOFX_EXTERNALS_DIR}/glm)
