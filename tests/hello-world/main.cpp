@@ -104,33 +104,8 @@ const BufferGeometry quad = BufferGeometry(
 using namespace std::chrono_literals;
 using clk = std::chrono::high_resolution_clock;
 auto prtm = [](const std::string& msg, const clk::duration& duration, double mul = 1.0) { lut::trace("{0} : {1} sec\n", msg, (double) duration.count() / 1e9 * mul); };
-auto w8usr = []() { int k; scanf("%d", &k); };
 
 int main() {
-	//lut::detail::logtoconsole = true;
-
-	//Thesaurus::init();
-	//Receiver crecv("composite-created", [](const Packet& message) {
-	//	lut::trace(
-	//		"A Composite has been created, UUID : {}\n",
-	//		message.unpack<lut::UUID>().tostring()
-	//	);
-	//});
-
-	//Pigeon::registerReceiver(&crecv);
-
-	//auto composite = Thesaurus::createComposite();
-	//Pigeon::dispatch();
-	//Pigeon::unregisterReceiver(&crecv);
-
-	//auto composite_dos = Thesaurus::createComposite();
-	//Pigeon::dispatch();
-
-	//Thesaurus::clear();
-
-	//w8usr();
-	//return 0;
-
 	lut::detail::loglevel = lut::LogLevel::Warn;
 	lut::detail::logtoconsole = true;
 
@@ -191,9 +166,6 @@ int main() {
 	lofx::release(&vbo);
 	lofx::release(&ebo);
 	lofx::release(&pipeline);
-
-	// Kill LOFX
-	lofx::terminate();
 	
 	return 0;
 }
