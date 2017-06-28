@@ -4,6 +4,12 @@ cmake_policy(SET CMP0048 NEW)
 
 set(LOFX_EXTERNALS_DIR ${PROJECT_SOURCE_DIR}/external)
 
+# GL3W
+execute_process(
+	COMMAND python ${LOFX_EXTERNALS_DIR}/gl3w/gl3w_gen.py
+	WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+)
+
 # LOFX SOURCES
 file(GLOB_RECURSE LOFX_SOURCES "${PROJECT_SOURCE_DIR}/src/**.c*")
 file(GLOB_RECURSE LOFX_INCLUDES "${PROJECT_SOURCE_DIR}/include/**.h*")
@@ -34,12 +40,6 @@ set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 add_subdirectory(${LOFX_EXTERNALS_DIR}/glfw)
 target_link_libraries(lofx glfw)
-
-# GL3W
-execute_process(
-	COMMAND python ${LOFX_EXTERNALS_DIR}/gl3w/gl3w_gen.py
-	WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
-)
 
 # GLM
 add_subdirectory(${LOFX_EXTERNALS_DIR}/glm)
