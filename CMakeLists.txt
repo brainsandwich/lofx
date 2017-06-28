@@ -16,12 +16,9 @@ set_target_properties (lofx PROPERTIES FOLDER LOFX/CORE)
 target_include_directories(lofx PUBLIC ${LOFX_INCLUDEDIR})
 
 # FETCH DEPENDENCIES
-message(STATUS "cmd: python deps_fetcher.py")
-execute_process(COMMAND "python" "./deps_fetcher.py"
+execute_process(COMMAND python depo.py
 	WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
-	RESULT_VARIABLE fetch_result
 )
-message(STATUS "command returned ${fetch_result}")
 
 # LUT
 add_subdirectory(${LOFX_EXTERNALS_DIR}/lut)
