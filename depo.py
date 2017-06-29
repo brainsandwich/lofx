@@ -12,19 +12,19 @@
 import json, os, sys, subprocess, shutil, argparse
 
 # 
-def getpack(root, name, origin, branch, version):
+def getpack(root, name, origin, branch, version, force):
 	target = version if len(version) != 0 else branch
 	remote_target = 'origin/' + target if len(version) == 0 else target
 
 	# init repo in root dir
 	if not os.path.exists(root):
 		os.makedirs(root)
-		subprocess.call(['git', 'init', root], stdout=console_out, stderr=console_out)
-		subprocess.call(['git', 'remote', 'add', 'origin', origin], cwd=root, stdout=console_out, stderr=console_out)
+		subprocess.call(['git', 'clone', '-b', target, '--single-branch', '--depth', '1', origin, root], stdout=console_out, stderr=console_out)
 		subprocess.call(['git', 'checkout', '-b', 'target'], cwd=root, stdout=console_out, stderr=console_out)
-		
-	subprocess.call(['git', 'fetch'], cwd=root, stdout=console_out, stderr=console_out)
-	subprocess.call(['git', 'reset', '--hard', remote_target], cwd=root, stdout=console_out, stderr=console_out)
+	elif force:
+		subprocess.call(['git', 'fetch'], cwd=root, stdout=console_out, stderr=console_out)
+		subprocess.call(['git', 'reset', '--hard', remote_target], cwd=root, stdout=console_out, stderr=console_out)
+
 	print('* Package \'' + name + '/' + target + '\' fetched ')
 
 	return
@@ -34,7 +34,7 @@ def update_self():
 	import stat
 	repo = 'depo'
 
-	getpack(repo, repo, 'https://github.com/brainsandwich/depo.git', 'master', '')
+	getpack(repo, repo, 'https://github.com/brainsandwich/depo.git', 'master', '', True)
 	lastupdate = subprocess.check_output(['git', 'show', '-s', '--format=\"%ci\"'], cwd=repo)
 
 	self_script = open(os.path.realpath(__file__), 'w')
@@ -60,6 +60,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('-v', '--verbose', help='verbose output', action='store_true')
 parser.add_argument('-u', '--update', help='update this script', action='store_true')
 parser.add_argument('-c', '--clear', help='clear dependencies folder before fetching', action='store_true')
+parser.add_argument('-f', '--force', help='forces redownload of packages', action='store_true')
 parser.add_argument('-i', '--input', help='path to the configuration file, default is \'./deps.json\'')
 parser.add_argument('-o', '--output', help='path to the dependencies installation folder, default is \'./external\'')
 args = parser.parse_args()
@@ -74,7 +75,7 @@ if args.update:
 # init
 script_path = os.path.dirname(os.path.realpath(__file__))
 config_path = args.input if args.input else 'deps.json'
-print('> Depo 1.0')
+print('> Depo 1.1')
 print('> Configuration file : ' + config_path)
 if not os.path.exists(config_path):
 	sys.exit('! No config found ! Aborting ...')
@@ -110,6 +111,6 @@ for package in config['packages']:
 	target = version if len(version) != 0 else branch
 	remote_target = 'origin/' + target if len(version) == 0 else target
 
-	getpack(repo_dir, name, origin, branch, version)
+	getpack(repo_dir, name, origin, branch, version, args.force)
 
 print('> Dependencies ready')
