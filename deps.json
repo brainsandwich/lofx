@@ -18,6 +18,11 @@
 			"origin" : "https://github.com/g-truc/glm.git"
 		},
 		{
+			"name" : "assimp",
+			"version" : "v3.3.1",
+			"origin" : "https://github.com/assimp/assimp.git"
+		},
+		{
 			"name" : "lut",
 			"branch" : "master",
 			"origin" : "https://github.com/brainsandwich/lut.git"

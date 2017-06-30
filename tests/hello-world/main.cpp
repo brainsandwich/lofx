@@ -1,6 +1,10 @@
 #include "LUT/lut.hpp"
 #include "LOFX/lofx.hpp"
 
+#include <assimp/Importer.hpp>
+#include <assimp/scene.h>
+#include <assimp/postprocess.h>
+
 #include <fstream>
 #include <filesystem>
 
@@ -19,20 +23,26 @@ namespace d3 {
 		template <typename ... Args>
 		Geometry(const std::vector<uint32_t>& indices, const std::vector<Args>&... data)
 			: indices(indices) {
-			setVerticesData(data...);
+			addVerticesData(data...);
+		}
+
+		void addVerticesData(const void* data, std::size_t size) {
+			auto length = vertices.size();
+			vertices.resize(vertices.size() + size);
+			memcpy(vertices.data() + length, (void*) data, size);
 		}
 
 		template <typename T>
-		void setVerticesData(const std::vector<T>& data) {
+		void addVerticesData(const std::vector<T>& data) {
 			auto size = vertices.size();
 			vertices.resize(vertices.size() + data.size() * sizeof(T));
 			memcpy(vertices.data() + size, data.data(), data.size() * sizeof(T));
 		}
 
 		template <typename T, typename ... Args>
-		void setVerticesData(const std::vector<T>& data, const std::vector<Args>&... args) {
-			setVerticesData(data);
-			setVerticesData(args...);
+		void addVerticesData(const std::vector<T>& data, const std::vector<Args>&... args) {
+			addVerticesData(data);
+			addVerticesData(args...);
 		}
 
 		void release() {
@@ -262,7 +272,8 @@ const std::string vertex_shader_source = R"(
 #extension GL_ARB_shading_language_packing : enable
 
 layout (location = 0) in vec3 coordinate;
-layout (location = 1) in vec4 color;
+layout (location = 1) in vec3 normal;
+layout (location = 2) in vec3 uv;
 
 out gl_PerVertex {
 	vec4 gl_Position;
@@ -270,6 +281,8 @@ out gl_PerVertex {
 
 out VSOut {
 	vec3 color;
+	vec3 normal;
+	vec3 uv;
 } vsout;
 
 uniform mat4 projection;
@@ -278,7 +291,9 @@ uniform mat4 model;
 
 void main() {
 	gl_Position = projection * view * model * vec4(coordinate, 1.0);
-	vsout.color = color.rgb;
+	vsout.color = vec3(0.5, 0.5, 0.5);
+	vsout.normal = normal;
+	vsout.uv = uv;
 }
 
 )";
@@ -290,37 +305,19 @@ const std::string fragment_shader_source = R"(
 
 in VSOut {
 	vec3 color;
+	vec3 normal;
+	vec3 uv;
 } fsin;
 
 layout (location = 0) out vec4 colorout;
 
+uniform float time;
+
 void main() {
-	colorout = vec4(fsin.color, 1.0);
+	colorout = vec4(vec3(fsin.uv.x * (cos(1.5 * time + 3.14 / 2.0) / 2.0 + 1.0), fsin.uv.y * (sin(time) / 2.0 + 1.0), fsin.uv.z), 1.0);
 }
 
 )";
-
-//const d3::BufferGeometry quad = d3::BufferGeometry(
-//	// uint32 Indices
-//	std::vector<uint32_t> {
-//		0, 1, 2,
-//		0, 2, 3
-//	},
-//	// XYZ float positions
-//	std::vector<float> {
-//		-1.0f, -1.0f, 0.0f,
-//		1.0f, -1.0f, 0.0f,
-//		1.0f, 1.0f, 0.0f,
-//		-1.0f, 1.0f, 0.0f
-//	},
-//	// ABGR uint32 color
-//	std::vector<uint32_t> {
-//		0x000000ff,
-//		0x0000ff00,
-//		0x00ff0000,
-//		0x00777777
-//	}
-//);
 
 #include <thread>
 
@@ -333,26 +330,50 @@ int main() {
 	lut::detail::logtoconsole = true;
 
 	// Init LOFX
-	lofx::init(glm::u32vec2(800, 800), "4.4");
+	lofx::init(glm::u32vec2(2000, 1200), "4.4");
 	atexit(lofx::terminate);
 
 	// Load model
-	md5::model_t loaded_model;
-	md5::read("model.md5", &loaded_model);
+	Assimp::Importer model_loader;
+	const aiScene* scene = model_loader.ReadFile("C:\\Users\\brainsandwich\\Documents\\dev\\polypack\\lofx\\tests\\hello-world\\soldier1.fbx",
+		aiProcess_Triangulate |
+		aiProcess_FindInstances |
+		aiProcess_OptimizeMeshes
+	);
+
+	if (!scene) {
+		lut::yell("Couldn\'t load file {0} : {1}", "C:\\Users\\brainsandwich\\Documents\\dev\\polypack\\lofx\\tests\\hello-world\\soldier1.fbx", model_loader.GetErrorString());
+		return -1;
+	}
+
 	d3::Model obj;
-	for (const auto& mesh : loaded_model.meshes) {
-		obj.geometries.push_back(md5::to_geometry(mesh));
-		d3::Geometry& geometry = obj.geometries.back();
+	obj.geometries.resize(scene->mNumMeshes);
+	for (std::size_t i = 0; i < scene->mNumMeshes; i++) {
+		const auto& mesh = scene->mMeshes[i];
+		d3::Geometry& geometry = obj.geometries[i];
+
+		geometry.addVerticesData((const void*) mesh->mVertices, mesh->mNumVertices * 3 * sizeof(float));
+		geometry.addVerticesData((const void*) mesh->mNormals, mesh->mNumVertices * 3 * sizeof(float));
+		//geometry.addVerticesData((const void*) mesh->mTextureCoords[0], mesh->mNumVertices * 3 * sizeof(float));
 		
 		// Preparing vertex buffer
 		geometry.vbo = lofx::createBuffer(lofx::BufferType::Vertex, lofx::BufferUsage::StaticDraw, geometry.vertices.size());
 		lofx::send(&geometry.vbo, (void*) geometry.vertices.data());
 		geometry.pack = lofx::buildSequentialAttributePack({
-			lofx::VertexAttribute(0, lofx::AttributeType::Float, 3, false, mesh.weights.size()),
-			lofx::VertexAttribute(1, lofx::AttributeType::Float, 2, true, mesh.vertices.size())
+			lofx::VertexAttribute(0, lofx::AttributeType::Float, 3, false, mesh->mNumVertices),
+			lofx::VertexAttribute(1, lofx::AttributeType::Float, 3, false, mesh->mNumVertices)
+			//lofx::VertexAttribute(2, lofx::AttributeType::Float, 3, true, mesh->mNumVertices)
 		});
 		
 		// Preparing index buffer
+		geometry.indices.resize(mesh->mNumFaces * 3);
+		std::size_t offset = 0;
+		for (std::size_t k = 0; k < mesh->mNumFaces; k++) {
+			geometry.indices[offset++] = mesh->mFaces[k].mIndices[0];
+			geometry.indices[offset++] = mesh->mFaces[k].mIndices[1];
+			geometry.indices[offset++] = mesh->mFaces[k].mIndices[2];
+		}
+
 		geometry.ebo = lofx::createBuffer(lofx::BufferType::Index, lofx::BufferUsage::StaticDraw, geometry.indices.size() * sizeof(uint32_t));
 		lofx::send(&geometry.ebo, (void*) geometry.indices.data());
 	}
@@ -369,14 +390,16 @@ int main() {
 
 	// Prepare camera and send uniforms
 	Camera camera;
-	camera.projection = glm::perspective(80.0f, 800.0f / 800.0f, 0.1f, 100.0f);
-	camera.view = glm::lookAt(glm::vec3(0.0f, 7.0f, 10.0f), glm::vec3(), glm::vec3(0.0f, 1.0f, 0.0f));
+	camera.projection = glm::perspective(60.0f * glm::pi<float>() / 180.0f, 2000.0f / 1200.0f, 0.1f, 100.0f);
+	camera.view = glm::lookAt(glm::vec3(0.0f, 10.0f, 0.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
 	lofx::send(&vertex_program, lofx::Uniform("view", camera.view));
 	lofx::send(&vertex_program, lofx::Uniform("projection", camera.projection));
 	
 	// Loop while window is not closed
+	float time = 0.0f;
 	lofx::loop([&] {
-		
+		lofx::send(&fragment_program, lofx::Uniform("time", time += 0.016f));
+		obj.transform = glm::rotate(obj.transform, 0.01f, glm::vec3(0.0f, 0.0f, 1.0f));
 		obj.render(&fbo, &pipeline);
 		std::this_thread::sleep_for(16ms);
 	});
