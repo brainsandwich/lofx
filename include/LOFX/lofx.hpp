@@ -506,9 +506,9 @@ namespace lofx {
 
 	void draw(const DrawProperties& properties) {
 		glBindFramebuffer(GL_FRAMEBUFFER, properties.fbo->id);
-		glDisable(GL_DEPTH_TEST);
+		glEnable(GL_DEPTH_TEST);
 		glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
-		glClear(GL_COLOR_BUFFER_BIT);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 		lofx::use(properties.pipeline);
 		glBindBuffer(GL_ARRAY_BUFFER, properties.vbo->id);
