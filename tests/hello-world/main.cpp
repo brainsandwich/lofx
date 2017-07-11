@@ -2,6 +2,7 @@
 #include "LOFX/lofx.hpp"
 
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
 
 #include <yocto/yocto_gltf.h>
 
@@ -21,8 +22,38 @@ namespace d3 {
 	};
 
 	struct Mesh {
+		std::string name;
 		std::vector<Geometry> geometries;
 	};
+
+	struct Node {
+		std::string name;
+		const Node* parent;
+		glm::mat4 transform;
+		std::vector<const Node*> children;
+		const Mesh* mesh;
+	};
+
+	void render(const Geometry* geometry, const lofx::DrawProperties& props) {
+		lofx::DrawProperties drp = props;
+		drp.indices = &geometry->indices;
+		drp.attributes = &geometry->attributePack;
+		lofx::draw(drp);
+	}
+
+	void render(const Mesh* mesh, const lofx::DrawProperties& props) {
+		for (const auto& geom : mesh->geometries)
+			render(&geom, props);
+	}
+
+	void render(const Node* node, const lofx::DrawProperties& props, const glm::mat4& parent = glm::mat4()) {
+		glm::mat4 current = parent * node->transform;
+		lofx::send(props.pipeline->stages.at(lofx::ShaderType::Vertex), lofx::Uniform("model", current));
+		if (node->mesh)
+			render(node->mesh, props);
+		for (const auto& node : node->children)
+			render(node, props, current);
+	}
 
 	namespace detail {
 		lofx::BufferAccessor parse(const ygltf::accessor_t& input) {
@@ -95,15 +126,11 @@ namespace d3 {
 		}
 	}
 
-	Mesh fromgltf(const ygltf::mesh_t& mesh, ygltf::glTF_t* root) {
+	Mesh parse(const ygltf::mesh_t& mesh, ygltf::glTF_t* root) {
 		Mesh result;
 		std::vector<lofx::Buffer> buffers;
 		std::vector<lofx::BufferView> views;
 		std::vector<lofx::BufferAccessor> accessors;
-
-		for (auto& buf : root->buffers) {
-			
-		}
 
 		for (auto& buf : root->bufferViews) {
 			switch (buf.target) {
@@ -141,6 +168,81 @@ namespace d3 {
 			}
 		}
 		return result;
+	}
+
+	void parseBuffers(ygltf::glTF_t* root,
+		std::vector<lofx::Buffer>* buffers,
+		std::vector<lofx::BufferView>* views,
+		std::vector<lofx::BufferAccessor>* accessors)
+	{
+		for (auto& buf : root->bufferViews) {
+			switch (buf.target) {
+			case ygltf::bufferView_t::target_t::array_buffer_t:
+				buffers->push_back(lofx::createBuffer(lofx::BufferType::Vertex, buf.byteLength));
+				break;
+			case ygltf::bufferView_t::target_t::element_array_buffer_t:
+				buffers->push_back(lofx::createBuffer(lofx::BufferType::Index, buf.byteLength));
+				break;
+			}
+
+			lofx::send(&buffers->back(), root->buffers[buf.buffer].data.data() + buf.byteOffset);
+
+			views->push_back(detail::parse(buf));
+			views->back().buffer = buffers->back();
+		}
+
+		for (auto& buf : root->accessors) {
+			accessors->push_back(detail::parse(buf));
+			accessors->back().view = views->at(buf.bufferView);
+		}
+	}
+
+	void parseMeshes(ygltf::glTF_t* root, const std::vector<lofx::BufferAccessor>& accessors, std::vector<Mesh>* meshes) {
+		meshes->reserve(root->meshes.size());
+		for (const auto& ymesh : root->meshes) {
+			meshes->push_back(Mesh());
+			Mesh& mesh = meshes->back();
+
+			mesh.name = ymesh.name;
+			mesh.geometries.reserve(ymesh.primitives.size());
+
+			for (const auto& yprim : ymesh.primitives) {
+				mesh.geometries.push_back(Geometry());
+				Geometry& geometry = mesh.geometries.back();
+				geometry.indices = accessors[yprim.indices];
+
+				for (const auto& pair : yprim.attributes) {
+					const int attrib_id = detail::to_attrib_id(pair.first);
+					const int accessor_id = pair.second;
+					geometry.attributePack.attributes[attrib_id] = accessors[accessor_id];
+					if (geometry.attributePack.bufferid == 0)
+						geometry.attributePack.bufferid = geometry.attributePack.attributes[attrib_id].view.buffer.id;
+				}
+			}
+		}
+	}
+
+	void parseNodes(ygltf::glTF_t* root, const std::vector<Mesh>& meshes, std::vector<Node>* nodes) {
+		nodes->reserve(root->nodes.size());
+		
+		// Associate mesh and transform
+		for (const auto& ynode : root->nodes) {
+			nodes->push_back(Node());
+			Node& node = nodes->back();
+
+			node.transform = glm::make_mat4(ynode.matrix.data());
+			node.name = ynode.name;
+			node.mesh = ynode.mesh >= 0 ? &meshes[ynode.mesh] : nullptr;
+		}
+		
+		// Associate children nodes
+		for (std::size_t i = 0; i < root->nodes.size(); i++) {
+			Node& node = nodes->at(i);
+			ygltf::node_t& ynode = root->nodes[i];
+
+			for (std::size_t k = 0; k < ynode.children.size(); k++)
+				node.children.push_back(&nodes->at(ynode.children[k]));
+		}
 	}
 
 	struct Skeleton {};
@@ -203,7 +305,7 @@ layout (location = 0) out vec4 colorout;
 uniform float time;
 
 void main() {
-	colorout = vec4(fsin.uv, 1.0);
+	colorout = vec4(fsin.normal, 1.0);
 }
 
 )";
@@ -224,7 +326,20 @@ int main() {
 
 	// Load model
 	auto gltf_model = ygltf::load_gltf("C:\\Users\\brainsandwich\\Downloads\\glTF-Sample-Models-master\\2.0\\Duck\\glTF-Embedded\\Duck.gltf");
-	d3::Mesh mesh = d3::fromgltf(gltf_model->meshes[0], gltf_model);
+
+	// Parse buffers in file
+	std::vector<lofx::Buffer> buffers;
+	std::vector<lofx::BufferView> views;
+	std::vector<lofx::BufferAccessor> accessors;
+	d3::parseBuffers(gltf_model, &buffers, &views, &accessors);
+
+	// Parse meshes in file
+	std::vector<d3::Mesh> meshes;
+	d3::parseMeshes(gltf_model, accessors, &meshes);
+
+	// Parse nodes in file
+	std::vector<d3::Node> nodes;
+	d3::parseNodes(gltf_model, meshes, &nodes);
 
 	// Preparing shader program
 	lofx::Program vertex_program = lofx::createProgram(lofx::ShaderType::Vertex, { vertex_shader_source });
@@ -243,25 +358,19 @@ int main() {
 	lofx::send(&vertex_program, lofx::Uniform("view", camera.view));
 	lofx::send(&vertex_program, lofx::Uniform("projection", camera.projection));
 
-	lofx::DrawProperties draw;
-	draw.attributes = &mesh.geometries[0].attributePack;
-	draw.indices = &mesh.geometries[0].indices;
-	draw.fbo = &fbo;
-	draw.pipeline = &pipeline;
+	lofx::DrawProperties drawProperties;
+	drawProperties.fbo = &fbo;
+	drawProperties.pipeline = &pipeline;
 
 	// Loop while window is not closed
 	float time = 0.0f;
 	lofx::loop([&] {
-		glm::mat4 duck_model;
-		duck_model = glm::rotate(duck_model, time, glm::vec3(0.0f, 1.0f, 0.0f));
-		duck_model = glm::scale(duck_model, glm::vec3(0.01f));
+		nodes[2].transform = glm::mat4();
+		nodes[2].transform = glm::rotate(nodes[2].transform, time, glm::vec3(0.0f, 1.0f, 0.0f));
 		time += 0.016f;
-		lofx::send(&vertex_program, lofx::Uniform("model", duck_model));
-		for (auto& geom : mesh.geometries) {
-			draw.indices = &geom.indices;
-			draw.attributes = &geom.attributePack;
-			lofx::draw(draw);
-		}
+
+		for (const auto& ynode : gltf_model->scenes[gltf_model->scene].nodes)
+			d3::render(&nodes[ynode], drawProperties);
 
 		std::this_thread::sleep_for(16ms);
 	});

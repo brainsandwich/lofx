@@ -123,12 +123,6 @@ namespace lofx {
 		std::unordered_map<uint32_t, BufferAccessor> attributes;
 	};
 
-	struct BufferBlock {
-		Buffer* buffer;
-		std::size_t begin;
-		std::size_t end;
-	};
-
 	struct Framebuffer {
 		uint32_t id;
 	};
@@ -145,11 +139,11 @@ namespace lofx {
 	};
 
 	struct DrawProperties {
-		Framebuffer* fbo;
-		BufferAccessor* indices;
-		AttributePack* attributes;
-		std::unordered_map<std::string, Texture*> textures;
-		Pipeline* pipeline;
+		const Framebuffer* fbo;
+		const BufferAccessor* indices;
+		const AttributePack* attributes;
+		std::unordered_map<std::string, const Texture*> textures;
+		const Pipeline* pipeline;
 	};
 
 	namespace gl {
@@ -169,20 +163,18 @@ namespace lofx {
 	}
 
 	Buffer createBuffer(BufferType buffer_type, std::size_t size, uint32_t buffer_storage = BufferStorage::Dynamic);
-	std::vector<BufferBlock> createBufferBlocks(Buffer* buffer, const std::initializer_list<std::size_t>& sizes);
-	void send(Buffer* buffer, const void* data);
-	void send(Buffer* buffer, const void* data, std::size_t origin, std::size_t size);
-	void send(BufferBlock* block, const void* data);
+	void send(const Buffer* buffer, const void* data);
+	void send(const Buffer* buffer, const void* data, std::size_t origin, std::size_t size);
 	void release(Buffer* buffer);
 
 	Texture createTexture(std::size_t width, std::size_t height);
-	void send(Texture* texture, const void* data);
+	void send(const Texture* texture, const void* data);
 	void release(Texture* texture);
 	
 	Program createProgram(ShaderType shadertype, const std::initializer_list<std::string>& sources);
 	Pipeline createPipeline();
-	void send(Program* program, const Uniform& uniform);
-	void use(Pipeline* pipeline);
+	void send(const Program* program, const Uniform& uniform);
+	void use(const Pipeline* pipeline);
 	void release(Pipeline* pipeline);
 	void release(Program* program);
 

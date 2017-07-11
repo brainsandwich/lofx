@@ -75,26 +75,12 @@ namespace lofx {
 		return result;
 	}
 
-	std::vector<BufferBlock> createBufferBlocks(Buffer* buffer, const std::initializer_list<std::size_t>& sizes) {
-		std::vector<BufferBlock> result;
-		std::size_t offset = 0;
-		for (const auto& sz : sizes) {
-			result.push_back(BufferBlock{ buffer, offset, offset + sz });
-			offset += sz;
-		}
-		return result;
-	}
-
-	void send(Buffer* buffer, const void* data) {
+	void send(const Buffer* buffer, const void* data) {
 		glBufferSubData(gl::translate(buffer->type), 0, buffer->size, data);
 	}
 
-	void send(Buffer* buffer, const void* data, std::size_t origin, std::size_t size) {
+	void send(const Buffer* buffer, const void* data, std::size_t origin, std::size_t size) {
 		glBufferSubData(gl::translate(buffer->type), origin, size, data);
-	}
-
-	void send(BufferBlock* block, const void* data) {
-		send(block->buffer, data, block->begin, block->end - block->begin);
 	}
 
 	void release(Buffer* buffer) {
@@ -103,8 +89,8 @@ namespace lofx {
 	}
 
 	Texture createTexture(std::size_t width, std::size_t height) { return Texture(); }
-	void send(Texture* texture, const void* data) {}
-	void release(Texture* texture) {}
+	void send(const Texture* texture, const void* data) {}
+	void release(const Texture* texture) {}
 
 	Program createProgram(ShaderType shadertype, const std::initializer_list<std::string>& sources) {
 		Program result;
@@ -149,13 +135,13 @@ namespace lofx {
 		return result;
 	}
 
-	void send(Program* program, const Uniform& uniform) {
+	void send(const Program* program, const Uniform& uniform) {
 		if (!program->uniform_locations.count(uniform.name)) {
 			lut::warn("Location of \"{}\" uniform not found in shader program\n", uniform.name.c_str());
 			return;
 		}
 
-		uint32_t location = program->uniform_locations[uniform.name];
+		uint32_t location = program->uniform_locations.at(uniform.name);
 		switch (uniform.type) {
 		case UniformType::Float:
 			glProgramUniform1fv(program->id, location, 1, &uniform.float_value);
@@ -181,7 +167,7 @@ namespace lofx {
 		}
 	}
 
-	void use(Pipeline* pipeline) {
+	void use(const Pipeline* pipeline) {
 		glUseProgram(0);
 		glUseProgramStages(pipeline->id, GL_ALL_SHADER_BITS, 0);
 		for (const auto& stage_pair : pipeline->stages) {
@@ -253,7 +239,7 @@ namespace lofx {
 		return pack;
 	}
 
-	void bindAttributePack(AttributePack* pack) {
+	void bindAttributePack(const AttributePack* pack) {
 		int maxVertexAttribs = 0;
 		glGetIntegerv(GL_MAX_VERTEX_ATTRIBS, &maxVertexAttribs);
 
