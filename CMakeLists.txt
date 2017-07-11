@@ -45,11 +45,9 @@ target_link_libraries(lofx glfw)
 add_subdirectory(${LOFX_EXTERNALS_DIR}/glm)
 target_link_libraries(lofx glm)
 
-# ASSIMP
-set(ASSIMP_NO_EXPORT ON CACHE BOOL "" FORCE)
-add_subdirectory(${LOFX_EXTERNALS_DIR}/assimp)
-target_include_directories(lofx PUBLIC ${LOFX_EXTERNALS_DIR}/assimp/include)
-target_link_libraries(lofx assimp)
+# YOCTO
+add_subdirectory(${LOFX_EXTERNALS_DIR}/yocto-gl)
+target_link_libraries(lofx yocto)
 
 # TESTS
 option(LOFX_BUILD_TESTS "Activate to build LOFX tests" OFF)
