@@ -18,7 +18,7 @@ set(LOFX_INCLUDEDIR ${PROJECT_SOURCE_DIR}/include)
 # LOFX EXECUTABLE
 add_library(lofx ${LOFX_SOURCES} ${LOFX_INCLUDES})
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
-set_target_properties (lofx PROPERTIES FOLDER LOFX/CORE)
+set_target_properties (lofx PROPERTIES FOLDER lofx)
 target_include_directories(lofx PUBLIC ${LOFX_INCLUDEDIR})
 
 # FETCH DEPENDENCIES
@@ -33,6 +33,10 @@ target_link_libraries(lofx lut)
 # OPENGL
 find_package(OpenGL REQUIRED)
 target_link_libraries(lofx ${OPENGL_gl_LIBRARY})
+
+# GLBINDING
+# add_subdirectory(${LOFX_EXTERNALS_DIR}/glbinding)
+# target_link_libraries(lofx glbinding)
 
 # GLFW
 set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)

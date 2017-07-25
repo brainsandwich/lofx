@@ -1,37 +1,61 @@
 #pragma once
 
-#include "LUT/lut.hpp"
+#include "lut/lut.hpp"
 
 #define GLFW_INCLUDE_NONE
-#include <GL/gl3w.h>
 #include <GLFW/glfw3.h>
+#include <GL/gl3w.h>
 #include <glm/glm.hpp>
 
 #include <unordered_map>
 
 namespace lofx {
 
-	enum class ShaderType {
-		Vertex,
-		TessellationControl,
-		TessellationEvaluation,
-		Geometry,
-		Fragment,
-		Compute
+	inline void onerror(GLenum error) {
+		if (error == GL_NO_ERROR)
+			return;
+
+		switch (error) {
+		case GL_INVALID_ENUM: lut::yell("OpenGL : Invalid enum"); return;
+		case GL_INVALID_VALUE: lut::yell("OpenGL : Invalid value"); return;
+		case GL_INVALID_OPERATION: lut::yell("OpenGL : Invalid operation"); return;
+		case GL_INVALID_FRAMEBUFFER_OPERATION: lut::yell("OpenGL : Invalid framebuffer operation"); return;
+		case GL_OUT_OF_MEMORY: lut::yell("OpenGL : Out of memory"); return;
+		case GL_STACK_UNDERFLOW: lut::yell("OpenGL : Stack underflow"); return;
+		case GL_STACK_OVERFLOW: lut::yell("OpenGL : Stack overflow"); return;
+		}
+	}
+
+	///////////////////////////////////////////////////////////////////////////////////////
+	////////// SHADERS AND PROGRAMS ///////////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////////////
+	struct ShaderType {
+		using type = uint8_t;
+		static const type Vertex = 0x1 << 0;
+		static const type TessellationControl = 0x1 << 1;
+		static const type TessellationEvaluation = 0x1 << 2;
+		static const type Geometry = 0x1 << 3;
+		static const type Fragment = 0x1 << 4;
+		static const type Compute = 0x1 << 5;
+		static const type Any = 
+			Vertex | TessellationControl |
+			TessellationEvaluation | Geometry |
+			Fragment | Compute;
 	};
 
 	struct Program {
 		uint32_t id;
-		ShaderType type;
+		ShaderType::type typemask;
 		std::unordered_map<std::string, uint32_t> uniform_locations;
 	};
 
 	struct Pipeline {
 		uint32_t id;
-		std::unordered_map<ShaderType, Program*> stages;
+		std::list<Program*> stages;
 	};
 
 	enum class UniformType {
+		UnsignedInt, Int,
 		Float, Float2, Float3, Float4,
 		Mat2, Mat3, Mat4
 	};
@@ -40,6 +64,8 @@ namespace lofx {
 		std::string name;
 		UniformType type;
 		union {
+			uint32_t uint_value;
+			int32_t int_value;
 			float float_value;
 			glm::vec2 float2_value;
 			glm::vec3 float3_value;
@@ -61,12 +87,16 @@ namespace lofx {
 			else if (tid == typeid(glm::mat2)) type = UniformType::Mat2;
 			else if (tid == typeid(glm::mat3)) type = UniformType::Mat3;
 			else if (tid == typeid(glm::mat4)) type = UniformType::Mat4;
+			else if (tid == typeid(uint32_t)) type = UniformType::UnsignedInt;
+			else if (tid == typeid(int32_t)) type = UniformType::Int;
 			else return;
 
 			assign_value(value);
 		}
 
 	private:
+		void assign_value(uint32_t value) { uint_value = value; }
+		void assign_value(int32_t value) { int_value = value; }
 		void assign_value(float value) { float_value = value; }
 		void assign_value(glm::vec2 value) { float2_value = value; }
 		void assign_value(glm::vec3 value) { float3_value = value; }
@@ -76,6 +106,9 @@ namespace lofx {
 		void assign_value(glm::mat4 value) { mat4_value = value; }
 	};
 
+	///////////////////////////////////////////////////////////////////////////////////////
+	////////// GENERIC BUFFERS ////////////////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////////////
 	enum class BufferType {
 		Vertex, Index
 	};
@@ -97,6 +130,7 @@ namespace lofx {
 	};
 
 	struct Buffer {
+		std::vector<uint8_t> data;
 		std::size_t size;
 		BufferType type;
 		uint32_t id;
@@ -123,21 +157,212 @@ namespace lofx {
 		std::unordered_map<uint32_t, BufferAccessor> attributes;
 	};
 
+
+	///////////////////////////////////////////////////////////////////////////////////////
+	////////// TEXTURES AND FRAMEBUFFERS //////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////////////
 	struct Framebuffer {
 		uint32_t id;
 	};
 
+	enum class TextureMagnificationFilter {
+		Nearest,
+		Linear
+	};
+
+	enum class TextureMinificationFilter {
+		Nearest,
+		Linear,
+		NearestMipmapNearest,
+		LinearMipmapNearest,
+		NearestMipmapLinear,
+		LinearMipmapLinear
+	};
+
+	enum class TextureWrappping {
+		Clamp,
+		Mirrored,
+		Repeat
+	};
+
+	enum class TextureCompareMode {};
+	enum class TextureCompareFunc {};
+
+	struct TextureSamplerParameters {
+		TextureMagnificationFilter mag;
+		TextureMinificationFilter min;
+		TextureWrappping s;
+		TextureWrappping t;
+		float max_anisotropy;
+		float min_lod;
+		float max_lod;
+		float border_color[4];
+	};
+
+	struct TextureSampler {
+		uint32_t id;
+		TextureSamplerParameters parameters;
+	};
+
+	enum class TextureInternalFormat {
+		// Base
+		DepthComponent,
+		DepthStencil,
+		R,
+		RG,
+		RGB,
+		RGBA,
+
+		// Sized
+		R8,
+		R8_SNORM,
+		R16,
+		R16_SNORM,
+		RG8,
+		RG8_SNORM,
+		RG16,
+		RG16_SNORM,
+		R3_G3_B2,
+		RGB4,
+		RGB5,
+		RGB8,
+		RGB8_SNORM,
+		RGB10,
+		RGB12,
+		RGB16_SNORM,
+		RGBA2,
+		RGBA4,
+		RGB5_A1,
+		RGBA8,
+		RGBA8_SNORM,
+		RGB10_A2,
+		RGB10_A2UI,
+		RGBA12,
+		RGBA16,
+		SRGB8,
+		SRGB8_ALPHA8,
+		R16F,
+		RG16F,
+		RGB16F,
+		RGBA16F,
+		R32F,
+		RG32F,
+		RGB32F,
+		RGBA32F,
+		R11F_G11F_B10F,
+		RGB9_E5,
+		R8I,
+		R8UI,
+		R16I,
+		R16UI,
+		R32I,
+		R32UI,
+		RG8I,
+		RG8UI,
+		RG16I,
+		RG16UI,
+		RG32I,
+		RG32UI,
+		RGB8I,
+		RGB8UI,
+		RGB16I,
+		RGB16UI,
+		RGB32I,
+		RGB32UI,
+		RGBA8I,
+		RGBA8UI,
+		RGBA16I,
+		RGBA16UI,
+		RGBA32I,
+		RGBA32UI,
+
+		// Compressed
+		COMPRESSED_RED,
+		COMPRESSED_RG,
+		COMPRESSED_RGB,
+		COMPRESSED_RGBA,
+		COMPRESSED_SRGB,
+		COMPRESSED_SRGB_ALPHA,
+		COMPRESSED_RED_RGTC1,
+		COMPRESSED_SIGNED_RED_RGTC1,
+		COMPRESSED_RG_RGTC2,
+		COMPRESSED_SIGNED_RG_RGTC2,
+		COMPRESSED_RGBA_BPTC_UNORM,
+		COMPRESSED_SRGB_ALPHA_BPTC_UNORM,
+		COMPRESSED_RGB_BPTC_SIGNED_FLOAT,
+		COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT
+	};
+
+	enum class TextureTarget {
+		// 1D
+		Texture1d,
+		ProxyTexture1d,
+
+		// 2D
+		Texture2d,
+		ProxyTexture2d,
+		Texture1dArray,
+		ProxyTexture1dArray,
+		TextureRectangle,
+		ProxyTextureRectangle,
+		TextureCubeMapPositiveX,
+		TextureCubeMapNegativeX,
+		TextureCubeMapPositiveY,
+		TextureCubeMapNegativeY,
+		TextureCubeMapPositiveZ,
+		TextureCubeMapNegativeZ,
+		ProxyTextureCubeMap,
+
+		// 3D
+		Texture3d,
+		ProxyTexture3d,
+		Texture2dArray,
+		ProxyTexture2dArray
+	};
+
 	struct Texture {
-		uint32_t width, height;
+		const TextureSampler* sampler;
+		TextureTarget target;
+		TextureInternalFormat internal_format;
+		uint32_t width, height, depth;
 		uint32_t id;
 	};
 
-	struct TextureBlock {
-		Texture* texture;
-		glm::u64vec2 begin;
-		glm::u64vec2 end;
+	enum class ImageDataType {
+		UnsignedByte,
+		Byte,
+		UnsignedShort,
+		Short,
+		UnsignedInt,
+		Int,
+		Float,
+		UnsignedByte_3_3_2,
+		UnsignedByte_2_3_3_rev,
+		UnsignedShort_5_6_5,
+		UnsignedShort_5_6_5_rev,
+		UnsignedShort_4_4_4_4,
+		UnsignedShort_4_4_4_4_rev,
+		UnsignedShort_5_5_5_1,
+		UnsignedShort_1_5_5_5_rev,
+		UnsignedInt_8_8_8_8,
+		UnsignedInt_8_8_8_8_rev,
+		UnsignedInt_10_10_10_2,
+		UnsignedInt_2_10_10_10_rev
 	};
 
+	enum class ImageDataFormat {
+		R,
+		RG,
+		RGB,
+		BGR,
+		RGBA,
+		DepthComponent,
+		StencilIndex
+	};
+
+	///////////////////////////////////////////////////////////////////////////////////////
+	////////// COMMAND PROPERTIES /////////////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////////////
 	struct DrawProperties {
 		const Framebuffer* fbo;
 		const BufferAccessor* indices;
@@ -146,14 +371,9 @@ namespace lofx {
 		const Pipeline* pipeline;
 	};
 
-	namespace gl {
-		GLbitfield translateBitfield(ShaderType value);
-		GLenum translate(ShaderType value);
-		GLenum translate(BufferType value);
-		GLenum translate(AttributeType value);
-		GLbitfield translateBufferStorage(uint32_t value);
-	}
-
+	///////////////////////////////////////////////////////////////////////////////////////
+	////////// STATE //////////////////////////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////////////
 	namespace detail {
 		struct State {
 			GLFWwindow* window;
@@ -162,27 +382,55 @@ namespace lofx {
 		extern State state;
 	}
 
+	///////////////////////////////////////////////////////////////////////////////////////
+	////////// FUNCTIONS //////////////////////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////////////
+
+	// Translations
+	namespace gl {
+		GLenum translate(BufferType value);
+		GLenum translate(AttributeType value);
+		GLenum translate(ImageDataFormat value);
+		GLenum translate(ImageDataType value);
+		GLenum translate(TextureInternalFormat value);
+		GLenum translate(TextureTarget value);
+		GLenum translateShaderType(ShaderType::type value);
+		GLbitfield translateShaderTypeMask(ShaderType::type value);
+		GLbitfield translateBufferStorage(uint32_t value);
+	}
+
+	// Buffers
 	Buffer createBuffer(BufferType buffer_type, std::size_t size, uint32_t buffer_storage = BufferStorage::Dynamic);
 	void send(const Buffer* buffer, const void* data);
 	void send(const Buffer* buffer, const void* data, std::size_t origin, std::size_t size);
 	void release(Buffer* buffer);
+	uint8_t attribTypeSize(AttributeType type);
+	AttributePack buildInterleavedAttributePack(const std::initializer_list<BufferAccessor>& attributes);
+	AttributePack buildSequentialAttributePack(const std::initializer_list<BufferAccessor>& attributes);
+	void bind(AttributePack* pack);
 
-	Texture createTexture(std::size_t width, std::size_t height);
-	void send(const Texture* texture, const void* data);
+	// Textures
+	Texture createTexture(std::size_t width, std::size_t height, std::size_t depth, const TextureSampler* sampler, TextureTarget target = TextureTarget::Texture2d, TextureInternalFormat format = TextureInternalFormat::RGBA8);
+	void send(const Texture* texture, const void* data, const glm::u32vec3& size, const glm::u32vec3& offset, ImageDataFormat format, ImageDataType data_type);
+	void send(const Texture* texture, const void* data, const glm::u32vec3& size, const glm::u32vec3& offset);
+	void send(const Texture* texture, const void* data, ImageDataFormat format = ImageDataFormat::RGBA, ImageDataType data_type = ImageDataType::UnsignedByte);
+	void bind(const Texture* texture);
 	void release(Texture* texture);
-	
-	Program createProgram(ShaderType shadertype, const std::initializer_list<std::string>& sources);
+
+	// Samplers
+	TextureSampler createTextureSampler(const TextureSamplerParameters& parameters);
+	void release(TextureSampler* sampler);
+
+	// Programs
+	Program createProgram(ShaderType::type typemask, const std::initializer_list<std::string>& sources);
 	Pipeline createPipeline();
+	const Program* findStage(const Pipeline* program, ShaderType::type typemask);
 	void send(const Program* program, const Uniform& uniform);
 	void use(const Pipeline* pipeline);
 	void release(Pipeline* pipeline);
 	void release(Program* program);
 
-	uint8_t attribTypeSize(AttributeType type);
-	AttributePack buildInterleavedAttributePack(const std::initializer_list<BufferAccessor>& attributes);
-	AttributePack buildSequentialAttributePack(const std::initializer_list<BufferAccessor>& attributes);
-	void bindAttributePack(AttributePack* pack);
-
+	// State Management
 	void sync();
 	void init(const glm::u32vec2& size, const std::string& glversion = "");
 	void terminate();
@@ -197,5 +445,6 @@ namespace lofx {
 		}
 	}
 
+	// Framebuffers
 	Framebuffer current_fbo();
 }

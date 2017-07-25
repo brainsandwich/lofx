@@ -1,107 +1,24 @@
-#include "LOFX/lofx.hpp"
+#include "lofx/lofx.hpp"
 
 #include <glm/gtc/type_ptr.hpp>
 
+
+
 namespace lofx {
 
-	namespace gl {
-		GLbitfield translateBitfield(ShaderType value) {
-			switch (value) {
-			case ShaderType::Vertex: return GL_VERTEX_SHADER_BIT;
-			case ShaderType::TessellationControl: return GL_TESS_CONTROL_SHADER_BIT;
-			case ShaderType::TessellationEvaluation: return GL_TESS_EVALUATION_SHADER_BIT;
-			case ShaderType::Geometry: return GL_GEOMETRY_SHADER_BIT;
-			case ShaderType::Fragment: return GL_FRAGMENT_SHADER_BIT;
-			case ShaderType::Compute: return GL_COMPUTE_SHADER_BIT;
-			}
-			return GL_ALL_SHADER_BITS;
-		}
-		GLenum translate(ShaderType value) {
-			switch (value) {
-			case ShaderType::Vertex: return GL_VERTEX_SHADER;
-			case ShaderType::TessellationControl: return GL_TESS_CONTROL_SHADER;
-			case ShaderType::TessellationEvaluation: return GL_TESS_EVALUATION_SHADER;
-			case ShaderType::Geometry: return GL_GEOMETRY_SHADER;
-			case ShaderType::Fragment: return GL_FRAGMENT_SHADER;
-			case ShaderType::Compute: return GL_COMPUTE_SHADER;
-			}
-			return GL_NONE;
-		}
-		GLenum translate(BufferType value) {
-			switch (value) {
-			case BufferType::Vertex: return GL_ARRAY_BUFFER;
-			case BufferType::Index: return GL_ELEMENT_ARRAY_BUFFER;
-			}
-			return GL_NONE;
-		}
-		GLenum translate(AttributeType value) {
-			switch (value) {
-			case AttributeType::Byte: return GL_BYTE;
-			case AttributeType::UnsignedByte: return GL_UNSIGNED_BYTE;
-			case AttributeType::Short: return GL_SHORT;
-			case AttributeType::UnsignedShort: return GL_UNSIGNED_SHORT;
-			case AttributeType::Int: return GL_INT;
-			case AttributeType::UnsignedInt: return GL_UNSIGNED_INT;
-			case AttributeType::Float: return GL_FLOAT;
-			case AttributeType::Double: return GL_DOUBLE;
-			}
-			return GL_NONE;
-		}
-		GLbitfield translateBufferStorage(uint32_t value) {
-			GLbitfield result = 0;
-			if (value & BufferStorage::Dynamic) result |= GL_DYNAMIC_STORAGE_BIT;
-			if (value & BufferStorage::MapRead) result |= GL_MAP_READ_BIT;
-			if (value & BufferStorage::MapWrite) result |= GL_MAP_WRITE_BIT;
-			if (value & BufferStorage::MapPersistent) result |= GL_MAP_PERSISTENT_BIT;
-			if (value & BufferStorage::MapCoherent) result |= GL_MAP_COHERENT_BIT;
-			if (value & BufferStorage::ClientStorage) result |= GL_CLIENT_STORAGE_BIT;
-			return result;
-		}
-	}
-
-	namespace detail {
-		State state;
-	}
-
-	Buffer createBuffer(BufferType buffer_type, std::size_t size, uint32_t buffer_storage) {
-		Buffer result;
-		result.type = buffer_type;
-		result.size = size;
-		glGenBuffers(1, &result.id);
-		GLenum target = gl::translate(buffer_type);
-
-		glBindBuffer(target, result.id);
-		glBufferStorage(target, size, nullptr, gl::translateBufferStorage(buffer_storage));
-		return result;
-	}
-
-	void send(const Buffer* buffer, const void* data) {
-		glBufferSubData(gl::translate(buffer->type), 0, buffer->size, data);
-	}
-
-	void send(const Buffer* buffer, const void* data, std::size_t origin, std::size_t size) {
-		glBufferSubData(gl::translate(buffer->type), origin, size, data);
-	}
-
-	void release(Buffer* buffer) {
-		if (glIsBuffer(buffer->id))
-			glDeleteBuffers(1, &buffer->id);
-	}
-
-	Texture createTexture(std::size_t width, std::size_t height) { return Texture(); }
-	void send(const Texture* texture, const void* data) {}
-	void release(const Texture* texture) {}
-
-	Program createProgram(ShaderType shadertype, const std::initializer_list<std::string>& sources) {
+	///////////////////////////////////////////////////////////////////////////////////////
+	////////// SHADERS AND PROGRAMS ///////////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////////////
+	Program createProgram(ShaderType::type typemask, const std::initializer_list<std::string>& sources) {
 		Program result;
-		GLenum type = gl::translate(shadertype);
+		GLenum type = gl::translateShaderType(typemask);
 		std::string codeaccum;
 		for (const auto& src : sources)
 			codeaccum += src;
 
 		const char* code = codeaccum.c_str();
 		result.id = glCreateShaderProgramv(type, 1, &code);
-		result.type = shadertype;
+		result.typemask = typemask;
 
 		// Check program compilation / link status
 		int success = 0;
@@ -135,14 +52,28 @@ namespace lofx {
 		return result;
 	}
 
+	const Program* findStage(const Pipeline* pipeline, ShaderType::type typemask) {
+		for (const auto& stage : pipeline->stages) {
+			if (stage->typemask & typemask)
+				return stage;
+		}
+		return nullptr;
+	}
+
 	void send(const Program* program, const Uniform& uniform) {
 		if (!program->uniform_locations.count(uniform.name)) {
-			lut::warn("Location of \"{}\" uniform not found in shader program\n", uniform.name.c_str());
+			//lut::warn("Location of \"{}\" uniform not found in shader program\n", uniform.name.c_str());
 			return;
 		}
 
 		uint32_t location = program->uniform_locations.at(uniform.name);
 		switch (uniform.type) {
+		case UniformType::UnsignedInt:
+			glProgramUniform1uiv(program->id, location, 1, &uniform.uint_value);
+			break;
+		case UniformType::Int:
+			glProgramUniform1iv(program->id, location, 1, &uniform.int_value);
+			break;
 		case UniformType::Float:
 			glProgramUniform1fv(program->id, location, 1, &uniform.float_value);
 			break;
@@ -170,10 +101,9 @@ namespace lofx {
 	void use(const Pipeline* pipeline) {
 		glUseProgram(0);
 		glUseProgramStages(pipeline->id, GL_ALL_SHADER_BITS, 0);
-		for (const auto& stage_pair : pipeline->stages) {
-			GLenum type = gl::translateBitfield(stage_pair.first);
-			glUseProgramStages(pipeline->id, type, stage_pair.second->id);
-		}
+		for (const auto& stage : pipeline->stages) 
+			glUseProgramStages(pipeline->id, gl::translateShaderTypeMask(stage->typemask), stage->id);
+
 		glBindProgramPipeline(pipeline->id);
 	}
 
@@ -185,6 +115,34 @@ namespace lofx {
 	void release(Program* program) {
 		if (glIsProgram(program->id))
 			glDeleteProgram(program->id);
+	}
+
+	///////////////////////////////////////////////////////////////////////////////////////
+	////////// GENERIC BUFFERS ////////////////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////////////
+	Buffer createBuffer(BufferType buffer_type, std::size_t size, uint32_t buffer_storage) {
+		Buffer result;
+		result.type = buffer_type;
+		result.size = size;
+		glGenBuffers(1, &result.id);
+		GLenum target = gl::translate(buffer_type);
+
+		glBindBuffer(target, result.id);
+		glBufferStorage(target, size, nullptr, gl::translateBufferStorage(buffer_storage));
+		return result;
+	}
+
+	void send(const Buffer* buffer, const void* data) {
+		glBufferSubData(gl::translate(buffer->type), 0, buffer->size, data);
+	}
+
+	void send(const Buffer* buffer, const void* data, std::size_t origin, std::size_t size) {
+		glBufferSubData(gl::translate(buffer->type), origin, size, data);
+	}
+
+	void release(Buffer* buffer) {
+		if (glIsBuffer(buffer->id))
+			glDeleteBuffers(1, &buffer->id);
 	}
 
 	uint8_t attribTypeSize(AttributeType type) {
@@ -239,7 +197,7 @@ namespace lofx {
 		return pack;
 	}
 
-	void bindAttributePack(const AttributePack* pack) {
+	void bind(const AttributePack* pack) {
 		int maxVertexAttribs = 0;
 		glGetIntegerv(GL_MAX_VERTEX_ATTRIBS, &maxVertexAttribs);
 
@@ -266,6 +224,158 @@ namespace lofx {
 		}
 	}
 
+	///////////////////////////////////////////////////////////////////////////////////////
+	////////// TEXTURES AND FRAMEBUFFERS //////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////////////
+	Texture createTexture(std::size_t width, std::size_t height, std::size_t depth, const TextureSampler* sampler, TextureTarget target, TextureInternalFormat format) {
+		Texture tex;
+		tex.sampler = sampler;
+		tex.width = width;
+		tex.height = height;
+		tex.depth = depth;
+		tex.target = target;
+		tex.internal_format = format;
+
+		glGenTextures(1, &tex.id);
+		glBindTexture(gl::translate(tex.target), tex.id);
+		switch (target) {
+		case TextureTarget::Texture1d:
+		case TextureTarget::ProxyTexture1d:
+			glTexStorage1D(gl::translate(tex.target), 1, gl::translate(tex.internal_format), width);
+			break;
+
+		case TextureTarget::Texture2d:
+		case TextureTarget::ProxyTexture2d:
+		case TextureTarget::Texture1dArray:
+		case TextureTarget::ProxyTexture1dArray:
+		case TextureTarget::TextureRectangle:
+		case TextureTarget::ProxyTextureRectangle:
+		case TextureTarget::TextureCubeMapPositiveX:
+		case TextureTarget::TextureCubeMapNegativeX:
+		case TextureTarget::TextureCubeMapPositiveY:
+		case TextureTarget::TextureCubeMapNegativeY:
+		case TextureTarget::TextureCubeMapPositiveZ:
+		case TextureTarget::TextureCubeMapNegativeZ:
+		case TextureTarget::ProxyTextureCubeMap:
+			glTexStorage2D(gl::translate(tex.target), 1, gl::translate(tex.internal_format), width, height);
+			break;
+
+		case TextureTarget::Texture3d:
+		case TextureTarget::ProxyTexture3d:
+		case TextureTarget::Texture2dArray:
+		case TextureTarget::ProxyTexture2dArray:
+			glTexStorage3D(gl::translate(tex.target), 1, gl::translate(tex.internal_format), width, height, depth);
+			break;
+		}
+
+		if (tex.sampler) {
+			TextureMinificationFilter min = tex.sampler->parameters.min;
+			if (min == TextureMinificationFilter::LinearMipmapLinear
+				|| min == TextureMinificationFilter::LinearMipmapNearest
+				|| min == TextureMinificationFilter::NearestMipmapLinear
+				|| min == TextureMinificationFilter::NearestMipmapNearest)
+			{
+				glGenerateMipmap(gl::translate(tex.target));
+			}
+		}
+
+		return tex;
+	}
+
+	void send(const Texture* texture, const void* data, const glm::u32vec3& size, const glm::u32vec3& offset, ImageDataFormat format, ImageDataType data_type) {
+		glBindTexture(gl::translate(texture->target), texture->id);
+		switch (texture->target) {
+		case TextureTarget::Texture1d:
+		case TextureTarget::ProxyTexture1d:
+			glTexSubImage1D(gl::translate(texture->target), 0,
+				offset.x, size.x,
+				gl::translate(format), gl::translate(data_type),
+				data);
+			break;
+
+		case TextureTarget::Texture2d:
+		case TextureTarget::ProxyTexture2d:
+		case TextureTarget::Texture1dArray:
+		case TextureTarget::ProxyTexture1dArray:
+		case TextureTarget::TextureRectangle:
+		case TextureTarget::ProxyTextureRectangle:
+		case TextureTarget::TextureCubeMapPositiveX:
+		case TextureTarget::TextureCubeMapNegativeX:
+		case TextureTarget::TextureCubeMapPositiveY:
+		case TextureTarget::TextureCubeMapNegativeY:
+		case TextureTarget::TextureCubeMapPositiveZ:
+		case TextureTarget::TextureCubeMapNegativeZ:
+		case TextureTarget::ProxyTextureCubeMap:
+			glTexSubImage2D(gl::translate(texture->target), 0,
+				offset.x, offset.y,
+				size.x, size.y,
+				gl::translate(format), gl::translate(data_type),
+				data);
+			break;
+
+		case TextureTarget::Texture3d:
+		case TextureTarget::ProxyTexture3d:
+		case TextureTarget::Texture2dArray:
+		case TextureTarget::ProxyTexture2dArray:
+			glTexSubImage3D(gl::translate(texture->target), 0,
+				offset.x, offset.y, offset.z,
+				size.x, size.y, size.z,
+				gl::translate(format), gl::translate(data_type),
+				data);
+			break;
+		}
+	}
+
+	void send(const Texture* texture, const void* data,
+		const glm::u32vec3& size,
+		const glm::u32vec3& offset) {
+		send(texture, data, size, offset, ImageDataFormat::RGBA, ImageDataType::UnsignedByte);
+	}
+	void send(const Texture* texture, const void* data,
+		ImageDataFormat format,
+		ImageDataType data_type) {
+		send(texture, data, glm::u32vec3(texture->width, texture->height, texture->depth), glm::u32vec3(), format, data_type);
+	}
+
+	void release(const Texture* texture) {
+		if (glIsTexture(texture->id))
+			glDeleteTextures(1, &texture->id);
+	}
+
+	TextureSampler createTextureSampler(const TextureSamplerParameters& parameters) {
+		TextureSampler sampler;
+		glGenSamplers(1, &sampler.id);
+
+		switch (parameters.min) {
+		case TextureMinificationFilter::Linear: glSamplerParameteri(sampler.id, GL_TEXTURE_MIN_FILTER, GL_LINEAR); break;
+		case TextureMinificationFilter::Nearest: glSamplerParameteri(sampler.id, GL_TEXTURE_MIN_FILTER, GL_NEAREST); break;
+		case TextureMinificationFilter::LinearMipmapLinear: glSamplerParameteri(sampler.id, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR); break;
+		case TextureMinificationFilter::LinearMipmapNearest: glSamplerParameteri(sampler.id, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_NEAREST); break;
+		case TextureMinificationFilter::NearestMipmapLinear: glSamplerParameteri(sampler.id, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_LINEAR); break;
+		case TextureMinificationFilter::NearestMipmapNearest: glSamplerParameteri(sampler.id, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_NEAREST); break;
+		}
+
+		switch (parameters.mag) {
+		case TextureMagnificationFilter::Linear: glSamplerParameteri(sampler.id, GL_TEXTURE_MAG_FILTER, GL_LINEAR); break;
+		case TextureMagnificationFilter::Nearest: glSamplerParameteri(sampler.id, GL_TEXTURE_MAG_FILTER, GL_NEAREST); break;
+		}
+
+		sampler.parameters = parameters;
+		return sampler;
+	}
+	
+	void release(TextureSampler* sampler) {
+		if (glIsSampler(sampler->id))
+			glDeleteSamplers(1, &sampler->id);
+	}
+
+	///////////////////////////////////////////////////////////////////////////////////////
+	////////// STATE //////////////////////////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////////////
+	namespace detail {
+		State state;
+	}
+
 	void sync() {
 		glFinish();
 	}
@@ -273,7 +383,6 @@ namespace lofx {
 	void init(const glm::u32vec2& size, const std::string& glversion) {
 		if (!glfwInit()) {
 			lut::yell("GLFW init failed\n");
-			Sleep(1000);
 			exit(-1);
 		}
 
@@ -295,7 +404,6 @@ namespace lofx {
 
 		if (glversion != "" && !gl3wIsSupported(major, minor)) {
 			lut::yell("OpenGL {0}.{1} is not supported ! Aborting ...\n", major, minor);
-			Sleep(1000);
 			exit(-1);
 		}
 		else {
@@ -322,13 +430,248 @@ namespace lofx {
 	void draw(const DrawProperties& properties) {
 		glBindFramebuffer(GL_FRAMEBUFFER, properties.fbo->id);
 		glEnable(GL_DEPTH_TEST);
-		glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
+		glClearColor(0.27f, 0.27f, 0.28f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 		lofx::use(properties.pipeline);
-		lofx::bindAttributePack(properties.attributes);
+		lofx::bind(properties.attributes);
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, properties.indices->view.buffer.id);
+
+		glEnable(GL_TEXTURE_2D);
+		int32_t count = 0;
+		for (const auto& pair : properties.textures) {
+			glActiveTexture(GL_TEXTURE0 + count);
+			if (pair.second->sampler)
+				glBindSampler(count, pair.second->sampler->id);
+
+			for (const auto& stage : properties.pipeline->stages)
+				send(stage, Uniform(pair.first, count));
+			glBindTexture(gl::translate(pair.second->target), pair.second->id);
+
+			count++;
+		}
+
+		glActiveTexture(GL_TEXTURE0);
 		glDrawElements(GL_TRIANGLES, (GLsizei) properties.indices->count, gl::translate(properties.indices->component_type), (const void*) properties.indices->view.stride);
+	}
+
+	///////////////////////////////////////////////////////////////////////////////////////
+	////////// TRANSLATIONS ///////////////////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////////////
+	namespace gl {
+		GLbitfield translateBufferStorage(uint32_t value) {
+			GLbitfield result = 0;
+			if (value & BufferStorage::Dynamic) result |= GL_DYNAMIC_STORAGE_BIT;
+			if (value & BufferStorage::MapRead) result |= GL_MAP_READ_BIT;
+			if (value & BufferStorage::MapWrite) result |= GL_MAP_WRITE_BIT;
+			if (value & BufferStorage::MapPersistent) result |= GL_MAP_PERSISTENT_BIT;
+			if (value & BufferStorage::MapCoherent) result |= GL_MAP_COHERENT_BIT;
+			if (value & BufferStorage::ClientStorage) result |= GL_CLIENT_STORAGE_BIT;
+			return result;
+		}
+
+		GLbitfield translateShaderTypeMask(ShaderType::type value) {
+			GLbitfield result = 0;
+			if (value & ShaderType::Vertex) result |= GL_VERTEX_SHADER_BIT;
+			if (value & ShaderType::TessellationControl) result |= GL_TESS_CONTROL_SHADER_BIT;
+			if (value & ShaderType::TessellationEvaluation) result |= GL_TESS_EVALUATION_SHADER_BIT;
+			if (value & ShaderType::Geometry) result |= GL_GEOMETRY_SHADER_BIT;
+			if (value & ShaderType::Fragment) result |= GL_FRAGMENT_SHADER_BIT;
+			if (value & ShaderType::Compute) result |= GL_COMPUTE_SHADER_BIT;
+			return result;
+		}
+
+		GLenum translateShaderType(ShaderType::type value) {
+			if (value & ShaderType::Vertex) return GL_VERTEX_SHADER;
+			if (value & ShaderType::TessellationControl) return GL_TESS_CONTROL_SHADER;
+			if (value & ShaderType::TessellationEvaluation) return GL_TESS_EVALUATION_SHADER;
+			if (value & ShaderType::Geometry) return GL_GEOMETRY_SHADER;
+			if (value & ShaderType::Fragment) return GL_FRAGMENT_SHADER;
+			if (value & ShaderType::Compute) return GL_COMPUTE_SHADER;
+			return GL_NONE;
+		}
+
+		GLenum translate(BufferType value) {
+			switch (value) {
+			case BufferType::Vertex: return GL_ARRAY_BUFFER;
+			case BufferType::Index: return GL_ELEMENT_ARRAY_BUFFER;
+			}
+			return GL_NONE;
+		}
+
+		GLenum translate(AttributeType value) {
+			switch (value) {
+			case AttributeType::Byte: return GL_BYTE;
+			case AttributeType::UnsignedByte: return GL_UNSIGNED_BYTE;
+			case AttributeType::Short: return GL_SHORT;
+			case AttributeType::UnsignedShort: return GL_UNSIGNED_SHORT;
+			case AttributeType::Int: return GL_INT;
+			case AttributeType::UnsignedInt: return GL_UNSIGNED_INT;
+			case AttributeType::Float: return GL_FLOAT;
+			case AttributeType::Double: return GL_DOUBLE;
+			}
+			return GL_NONE;
+		}
+
+		GLenum translate(ImageDataFormat value) {
+			switch (value) {
+			case ImageDataFormat::R: return GL_RED;
+			case ImageDataFormat::RG: return GL_RG;
+			case ImageDataFormat::RGB: return GL_RGB;
+			case ImageDataFormat::BGR: return GL_BGR;
+			case ImageDataFormat::RGBA: return GL_RGBA;
+			case ImageDataFormat::DepthComponent: return GL_DEPTH_COMPONENT;
+			case ImageDataFormat::StencilIndex: return GL_STENCIL_INDEX;
+			}
+			return GL_NONE;
+		}
+
+		GLenum translate(ImageDataType value) {
+			switch (value) {
+			case ImageDataType::UnsignedByte: return GL_UNSIGNED_BYTE;
+			case ImageDataType::Byte: return GL_BYTE;
+			case ImageDataType::UnsignedShort: return GL_UNSIGNED_SHORT;
+			case ImageDataType::Short: return GL_SHORT;
+			case ImageDataType::UnsignedInt: return GL_UNSIGNED_INT;
+			case ImageDataType::Int: return GL_INT;
+			case ImageDataType::Float: return GL_FLOAT;
+			case ImageDataType::UnsignedByte_3_3_2: return GL_UNSIGNED_BYTE_3_3_2;
+			case ImageDataType::UnsignedByte_2_3_3_rev: return GL_UNSIGNED_BYTE_2_3_3_REV;
+			case ImageDataType::UnsignedShort_5_6_5: return GL_UNSIGNED_SHORT_5_6_5;
+			case ImageDataType::UnsignedShort_5_6_5_rev: return GL_UNSIGNED_SHORT_5_6_5_REV;
+			case ImageDataType::UnsignedShort_4_4_4_4: return GL_UNSIGNED_SHORT_4_4_4_4;
+			case ImageDataType::UnsignedShort_4_4_4_4_rev: return GL_UNSIGNED_SHORT_4_4_4_4_REV;
+			case ImageDataType::UnsignedShort_5_5_5_1: return GL_UNSIGNED_SHORT_5_5_5_1;
+			case ImageDataType::UnsignedShort_1_5_5_5_rev: return GL_UNSIGNED_SHORT_1_5_5_5_REV;
+			case ImageDataType::UnsignedInt_8_8_8_8: return GL_UNSIGNED_INT_8_8_8_8;
+			case ImageDataType::UnsignedInt_8_8_8_8_rev: return GL_UNSIGNED_INT_8_8_8_8_REV;
+			case ImageDataType::UnsignedInt_10_10_10_2: return GL_UNSIGNED_INT_10_10_10_2;
+			case ImageDataType::UnsignedInt_2_10_10_10_rev: return GL_UNSIGNED_INT_2_10_10_10_REV;
+			}
+			return GL_NONE;
+		}
+
+		GLenum translate(TextureInternalFormat value) {
+			switch (value) {
+			// Base
+			case TextureInternalFormat::DepthComponent: return GL_DEPTH_COMPONENT;
+			case TextureInternalFormat::DepthStencil: return GL_DEPTH_STENCIL;
+			case TextureInternalFormat::R: return GL_RED;
+			case TextureInternalFormat::RG: return GL_RG;
+			case TextureInternalFormat::RGB: return GL_RGB;
+			case TextureInternalFormat::RGBA: return GL_RGBA;
+
+			// Sized
+			case TextureInternalFormat::R8: return GL_R8;
+			case TextureInternalFormat::R8_SNORM: return GL_R8_SNORM;
+			case TextureInternalFormat::R16: return GL_R16;
+			case TextureInternalFormat::R16_SNORM: return GL_R16_SNORM;
+			case TextureInternalFormat::RG8: return GL_RG8;
+			case TextureInternalFormat::RG8_SNORM: return GL_RG8_SNORM;
+			case TextureInternalFormat::RG16: return GL_RG16;
+			case TextureInternalFormat::RG16_SNORM: return GL_RG16_SNORM;
+			case TextureInternalFormat::R3_G3_B2: return GL_R3_G3_B2;
+			case TextureInternalFormat::RGB4: return GL_RGB4;
+			case TextureInternalFormat::RGB5: return GL_RGB5;
+			case TextureInternalFormat::RGB8: return GL_RGB8;
+			case TextureInternalFormat::RGB8_SNORM: return GL_RGB8_SNORM;
+			case TextureInternalFormat::RGB10: return GL_RGB10;
+			case TextureInternalFormat::RGB12: return GL_RGB12;
+			case TextureInternalFormat::RGB16_SNORM: return GL_RGB16_SNORM;
+			case TextureInternalFormat::RGBA2: return GL_RGBA2;
+			case TextureInternalFormat::RGBA4: return GL_RGBA4;
+			case TextureInternalFormat::RGB5_A1: return GL_RGB5_A1;
+			case TextureInternalFormat::RGBA8: return GL_RGBA8;
+			case TextureInternalFormat::RGBA8_SNORM: return GL_RGBA8_SNORM;
+			case TextureInternalFormat::RGB10_A2: return GL_RGB10_A2;
+			case TextureInternalFormat::RGB10_A2UI: return GL_RGB10_A2UI;
+			case TextureInternalFormat::RGBA12: return GL_RGBA12;
+			case TextureInternalFormat::RGBA16: return GL_RGBA16;
+			case TextureInternalFormat::SRGB8: return GL_SRGB8;
+			case TextureInternalFormat::SRGB8_ALPHA8: return GL_SRGB8_ALPHA8;
+			case TextureInternalFormat::R16F: return GL_R16F;
+			case TextureInternalFormat::RG16F: return GL_RG16F;
+			case TextureInternalFormat::RGB16F: return GL_RGB16F;
+			case TextureInternalFormat::RGBA16F: return GL_RGBA16F;
+			case TextureInternalFormat::R32F: return GL_R32F;
+			case TextureInternalFormat::RG32F: return GL_RG32F;
+			case TextureInternalFormat::RGB32F: return GL_RGB32F;
+			case TextureInternalFormat::RGBA32F: return GL_RGBA32F;
+			case TextureInternalFormat::R11F_G11F_B10F: return GL_R11F_G11F_B10F;
+			case TextureInternalFormat::RGB9_E5: return GL_RGB9_E5;
+			case TextureInternalFormat::R8I: return GL_R8I;
+			case TextureInternalFormat::R8UI: return GL_R8UI;
+			case TextureInternalFormat::R16I: return GL_R16I;
+			case TextureInternalFormat::R16UI: return GL_R16UI;
+			case TextureInternalFormat::R32I: return GL_R32I;
+			case TextureInternalFormat::R32UI: return GL_R32UI;
+			case TextureInternalFormat::RG8I: return GL_RG8I;
+			case TextureInternalFormat::RG8UI: return GL_RG8UI;
+			case TextureInternalFormat::RG16I: return GL_RG16I;
+			case TextureInternalFormat::RG16UI: return GL_RG16UI;
+			case TextureInternalFormat::RG32I: return GL_RG32I;
+			case TextureInternalFormat::RG32UI: return GL_RG32UI;
+			case TextureInternalFormat::RGB8I: return GL_RGB8I;
+			case TextureInternalFormat::RGB8UI: return GL_RGB8UI;
+			case TextureInternalFormat::RGB16I: return GL_RGB16I;
+			case TextureInternalFormat::RGB16UI: return GL_RGB16UI;
+			case TextureInternalFormat::RGB32I: return GL_RGB32I;
+			case TextureInternalFormat::RGB32UI: return GL_RGB32UI;
+			case TextureInternalFormat::RGBA8I: return GL_RGBA8I;
+			case TextureInternalFormat::RGBA8UI: return GL_RGBA8UI;
+			case TextureInternalFormat::RGBA16I: return GL_RGBA16I;
+			case TextureInternalFormat::RGBA16UI: return GL_RGBA16UI;
+			case TextureInternalFormat::RGBA32I: return GL_RGBA32I;
+			case TextureInternalFormat::RGBA32UI: return GL_RGBA32UI;
+
+			// Compressed
+			case TextureInternalFormat::COMPRESSED_RED: return GL_COMPRESSED_RED;
+			case TextureInternalFormat::COMPRESSED_RG: return GL_COMPRESSED_RG;
+			case TextureInternalFormat::COMPRESSED_RGB: return GL_COMPRESSED_RGB;
+			case TextureInternalFormat::COMPRESSED_RGBA: return GL_COMPRESSED_RGBA;
+			case TextureInternalFormat::COMPRESSED_SRGB: return GL_COMPRESSED_SRGB;
+			case TextureInternalFormat::COMPRESSED_SRGB_ALPHA: return GL_COMPRESSED_SRGB_ALPHA;
+			case TextureInternalFormat::COMPRESSED_RED_RGTC1: return GL_COMPRESSED_RED_RGTC1;
+			case TextureInternalFormat::COMPRESSED_SIGNED_RED_RGTC1: return GL_COMPRESSED_SIGNED_RED_RGTC1;
+			case TextureInternalFormat::COMPRESSED_RG_RGTC2: return GL_COMPRESSED_RG_RGTC2;
+			case TextureInternalFormat::COMPRESSED_SIGNED_RG_RGTC2: return GL_COMPRESSED_SIGNED_RG_RGTC2;
+			case TextureInternalFormat::COMPRESSED_RGBA_BPTC_UNORM: return GL_COMPRESSED_RGBA_BPTC_UNORM;
+			case TextureInternalFormat::COMPRESSED_SRGB_ALPHA_BPTC_UNORM: return GL_COMPRESSED_SRGB_ALPHA_BPTC_UNORM;
+			case TextureInternalFormat::COMPRESSED_RGB_BPTC_SIGNED_FLOAT: return GL_COMPRESSED_RGB_BPTC_SIGNED_FLOAT;
+			case TextureInternalFormat::COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT: return GL_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT;
+			}
+			return GL_NONE;
+		}
+
+		GLenum translate(TextureTarget value) {
+			switch (value) {
+			// 1D
+			case TextureTarget::Texture1d: return GL_TEXTURE_1D;
+			case TextureTarget::ProxyTexture1d: return GL_PROXY_TEXTURE_1D;
+
+			// 2D
+			case TextureTarget::Texture2d: return GL_TEXTURE_2D;
+			case TextureTarget::ProxyTexture2d: return GL_PROXY_TEXTURE_2D;
+			case TextureTarget::Texture1dArray: return GL_TEXTURE_1D_ARRAY;
+			case TextureTarget::ProxyTexture1dArray: return GL_PROXY_TEXTURE_1D_ARRAY;
+			case TextureTarget::TextureRectangle: return GL_TEXTURE_RECTANGLE;
+			case TextureTarget::ProxyTextureRectangle: return GL_PROXY_TEXTURE_RECTANGLE;
+			case TextureTarget::TextureCubeMapPositiveX: return GL_TEXTURE_CUBE_MAP_POSITIVE_X;
+			case TextureTarget::TextureCubeMapNegativeX: return GL_TEXTURE_CUBE_MAP_NEGATIVE_X;
+			case TextureTarget::TextureCubeMapPositiveY: return GL_TEXTURE_CUBE_MAP_POSITIVE_Y;
+			case TextureTarget::TextureCubeMapNegativeY: return GL_TEXTURE_CUBE_MAP_NEGATIVE_Y;
+			case TextureTarget::TextureCubeMapPositiveZ: return GL_TEXTURE_CUBE_MAP_POSITIVE_Z;
+			case TextureTarget::TextureCubeMapNegativeZ: return GL_TEXTURE_CUBE_MAP_NEGATIVE_Z;
+			case TextureTarget::ProxyTextureCubeMap: return GL_PROXY_TEXTURE_CUBE_MAP;
+
+			// 3D
+			case TextureTarget::Texture3d: return GL_TEXTURE_3D;
+			case TextureTarget::ProxyTexture3d: return GL_PROXY_TEXTURE_3D;
+			case TextureTarget::Texture2dArray: return GL_TEXTURE_2D_ARRAY;
+			case TextureTarget::ProxyTexture2dArray: return GL_PROXY_TEXTURE_2D_ARRAY;
+			}
+			return GL_NONE;
+		}
 	}
 
 }
