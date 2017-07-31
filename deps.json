@@ -1,31 +1,44 @@
 {
-	"path" : "external",
+	"download-path" : "external/sources",
+	"build-path" : "external/build",
+	"output-path" : "external/output",
+	"generator" : "Visual Studio 15 2017 Win64",
 	"packages" :
 	[
 		{
 			"name" : "glfw",
 			"version" : "3.2.1",
-			"origin" : "https://github.com/glfw/glfw.git"
+			"origin" : "https://github.com/glfw/glfw.git",
+			"build" : true,
+			"build-options" : [
+				"GLFW_BUILD_DOCS=OFF",
+				"GLFW_BUILD_EXAMPLES=OFF",
+				"GLFW_BUILD_TESTS=OFF"
+			]
 		},
 		{
 			"name" : "gl3w",
 			"branch" : "master",
-			"origin" : "https://github.com/skaslev/gl3w.git"
+			"origin" : "https://github.com/skaslev/gl3w.git",
+			"build" : false
 		},
 		{
 			"name" : "glm",
 			"version" : "0.9.8.4",
-			"origin" : "https://github.com/g-truc/glm.git"
+			"origin" : "https://github.com/g-truc/glm.git",
+			"build" : true
 		},
 		{
 			"name" : "yocto-gl",
 			"branch" : "master",
-			"origin" : "https://github.com/brainsandwich/yocto-gl.git"
+			"origin" : "https://github.com/brainsandwich/yocto-gl.git",
+			"build" : true
 		},
 		{
 			"name" : "lut",
 			"branch" : "master",
-			"origin" : "https://github.com/brainsandwich/lut.git"
+			"origin" : "https://github.com/brainsandwich/lut.git",
+			"build" : true
 		}
 	]
 }
