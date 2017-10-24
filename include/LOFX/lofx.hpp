@@ -371,12 +371,39 @@ namespace lofx {
 	///////////////////////////////////////////////////////////////////////////////////////
 	////////// COMMAND PROPERTIES /////////////////////////////////////////////////////////
 	///////////////////////////////////////////////////////////////////////////////////////
+	struct ClearProperties {
+		glm::vec4 color = glm::vec4();
+		double depth = 1.0;
+		uint32_t stencil = 0;
+		bool clear_color = true;
+		bool clear_depth = true;
+		bool clear_stencil = false;
+	};
+
+	enum class CullFace {
+		Front, Back, Both
+	};
+
+	enum class FrontFace {
+		ClockWise, CounterClockWise
+	};
+
+	struct GraphicsProperties {
+		bool depth_test = true;
+		bool stencil_test = false;
+		bool faceculling_test = false;
+		CullFace cullface = CullFace::Back;
+		FrontFace frontface = FrontFace::CounterClockWise;
+	};
+
 	struct DrawProperties {
-		const Framebuffer* fbo;
+		const Framebuffer* fbo = nullptr;
 		const BufferAccessor* indices;
 		const AttributePack* attributes;
 		std::unordered_map<std::string, const Texture*> textures;
 		const Pipeline* pipeline;
+
+		GraphicsProperties graphics_properties = GraphicsProperties();
 	};
 
 	///////////////////////////////////////////////////////////////////////////////////////

@@ -545,27 +545,64 @@ namespace lofx {
 		glfwTerminate();
 	}
 
+	void swapbuffers() {
+		glfwSwapBuffers(detail::state.window);
+	}
+
+	void clear(Framebuffer* framebuffer, const ClearProperties& properties) {
+		if (!framebuffer)
+			glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		else
+			glBindFramebuffer(GL_FRAMEBUFFER, framebuffer->id);
+
+		glClearColor(properties.color.r, properties.color.g, properties.color.b, properties.color.a);
+		glClearDepth(properties.depth);
+		glClearStencil(properties.stencil);
+		uint32_t clearflags = 0;
+		clearflags = (properties.clear_color ? GL_COLOR_BUFFER_BIT : 0)
+			| (properties.clear_depth ? GL_DEPTH_BUFFER_BIT : 0)
+			| (properties.clear_stencil ? GL_STENCIL_BUFFER_BIT : 0);
+		glClear(clearflags);
+
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	}
 
 	void draw(const DrawProperties& properties) {
-		glBindFramebuffer(GL_FRAMEBUFFER, properties.fbo->id);
-		glEnable(GL_DEPTH_TEST);
-		glClearColor(0.27f, 0.27f, 0.28f, 1.0f);
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		if (!properties.fbo)
+			glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		else
+			glBindFramebuffer(GL_FRAMEBUFFER, properties.fbo->id);
+
+		const GraphicsProperties& gfxprop = properties.graphics_properties;
+
+		if (gfxprop.depth_test) glEnable(GL_DEPTH_TEST);
+		else glDisable(GL_DEPTH_TEST);
+
+		if (gfxprop.faceculling_test) glEnable(GL_CULL_FACE);
+		else glDisable(GL_CULL_FACE);
+
+		if (gfxprop.stencil_test) glEnable(GL_STENCIL_TEST);
+		else glDisable(GL_STENCIL_TEST);
+
+		glFrontFace(gfxprop.frontface == FrontFace::ClockWise ? GL_CW : GL_CCW);
+		glCullFace(gfxprop.cullface == CullFace::Front ? GL_FRONT : gfxprop.cullface == CullFace::Back ? GL_BACK : GL_FRONT_AND_BACK);
 
 		lofx::use(properties.pipeline);
 		lofx::bind(properties.attributes);
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, properties.indices->view.buffer.id);
 
-		glEnable(GL_TEXTURE_2D);
 		int32_t count = 0;
 		for (const auto& pair : properties.textures) {
 			glActiveTexture(GL_TEXTURE0 + count);
-			if (pair.second->sampler)
-				glBindSampler(count, pair.second->sampler->id);
 
-			for (const auto& stage : properties.pipeline->stages)
-				send(stage, Uniform(pair.first, count));
+			if (glIsSampler(pair.second->sampler.id))
+				glBindSampler(count, pair.second->sampler.id);
+
+			for (const auto& stage : properties.pipeline->stages) {
+				if (stage->uniform_locations.count(pair.first))
+					send(stage, Uniform(pair.first, count));
+			}
+
 			glBindTexture(gl::translate(pair.second->target), pair.second->id);
 
 			count++;
@@ -573,6 +610,8 @@ namespace lofx {
 
 		glActiveTexture(GL_TEXTURE0);
 		glDrawElements(GL_TRIANGLES, (GLsizei) properties.indices->count, gl::translate(properties.indices->component_type), (const void*) properties.indices->view.stride);
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	}
 
 	void setdbgCallback(const debug_callback_t& callback) {
 		detail::state.debug_callback = callback;
