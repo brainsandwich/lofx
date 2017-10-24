@@ -449,7 +449,7 @@ namespace lofx {
 
 	// Programs
 	Program createProgram(ShaderType::type typemask, const std::initializer_list<std::string>& sources);
-	Pipeline createPipeline();
+	Pipeline createPipeline(const std::initializer_list<Program*>& programs = {});
 	const Program* findStage(const Pipeline* program, ShaderType::type typemask);
 	void send(const Program* program, const Uniform& uniform);
 	void use(const Pipeline* pipeline);

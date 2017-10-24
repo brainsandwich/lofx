@@ -46,9 +46,11 @@ namespace lofx {
 		return result;
 	}
 
-	Pipeline createPipeline() {
+	Pipeline createPipeline(const std::initializer_list<Program*>& programs) {
 		Pipeline result;
 		glGenProgramPipelines(1, &result.id);
+		if (programs.size() != 0)
+			result.stages = programs;
 		return result;
 	}
 
