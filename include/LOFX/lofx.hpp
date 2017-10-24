@@ -1,12 +1,12 @@
 #pragma once
 
-#include "lut/lut.hpp"
-
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 #include <GL/gl3w.h>
 #include <glm/glm.hpp>
 
+#include <functional>
+#include <memory>
 #include <unordered_map>
 
 namespace lofx {
@@ -16,13 +16,13 @@ namespace lofx {
 			return;
 
 		switch (error) {
-		case GL_INVALID_ENUM: lut::yell("OpenGL : Invalid enum"); return;
-		case GL_INVALID_VALUE: lut::yell("OpenGL : Invalid value"); return;
-		case GL_INVALID_OPERATION: lut::yell("OpenGL : Invalid operation"); return;
-		case GL_INVALID_FRAMEBUFFER_OPERATION: lut::yell("OpenGL : Invalid framebuffer operation"); return;
-		case GL_OUT_OF_MEMORY: lut::yell("OpenGL : Out of memory"); return;
-		case GL_STACK_UNDERFLOW: lut::yell("OpenGL : Stack underflow"); return;
-		case GL_STACK_OVERFLOW: lut::yell("OpenGL : Stack overflow"); return;
+		case GL_INVALID_ENUM: detail::yell("OpenGL : Invalid enum\n"); return;
+		case GL_INVALID_VALUE: detail::yell("OpenGL : Invalid value\n"); return;
+		case GL_INVALID_OPERATION: detail::yell("OpenGL : Invalid operation\n"); return;
+		case GL_INVALID_FRAMEBUFFER_OPERATION: detail::yell("OpenGL : Invalid framebuffer operation\n"); return;
+		case GL_OUT_OF_MEMORY: detail::yell("OpenGL : Out of memory\n"); return;
+		case GL_STACK_UNDERFLOW: detail::yell("OpenGL : Stack underflow\n"); return;
+		case GL_STACK_OVERFLOW: detail::yell("OpenGL : Stack overflow\n"); return;
 		}
 	}
 
@@ -374,10 +374,36 @@ namespace lofx {
 	///////////////////////////////////////////////////////////////////////////////////////
 	////////// STATE //////////////////////////////////////////////////////////////////////
 	///////////////////////////////////////////////////////////////////////////////////////
+	enum class DebugLevel {
+		Trace, Warn, Error
+	};
+
+	using debug_callback_t = std::function<void(DebugLevel, const std::string&)>;
+
 	namespace detail {
+		template <typename ... Args> void trace(const std::string& msg, Args ... args) {
+			if (state.debug_callback) state.debug_callback(DebugLevel::Trace, string_format(msg, args ...));
+		}
+
+		template <typename ... Args> void warn(const std::string& msg, Args ... args) {
+			if (state.debug_callback) state.debug_callback(DebugLevel::Warn, string_format(msg, args ...));
+		}
+
+		template <typename ... Args> void yell(const std::string& msg, Args ... args) {
+			if (state.debug_callback) state.debug_callback(DebugLevel::Error, string_format(msg, args ...));
+		}
+
+		template<typename ... Args> std::string string_format(const std::string& format, Args ... args) {
+			size_t size = snprintf(nullptr, 0, format.c_str(), args ...) + 1; // Extra space for '\0'
+			std::unique_ptr<char[]> buf(new char[size]);
+			snprintf(buf.get(), size, format.c_str(), args ...);
+			return std::string(buf.get(), buf.get() + size - 1); // We don't want the '\0' inside
+		}
+
 		struct State {
 			GLFWwindow* window;
 			uint32_t vao;
+			debug_callback_t debug_callback;
 		};
 		extern State state;
 	}
@@ -435,6 +461,7 @@ namespace lofx {
 	void init(const glm::u32vec2& size, const std::string& glversion = "");
 	void terminate();
 	void draw(const DrawProperties& properties);
+	void setdbgCallback(const debug_callback_t& callback);
 
 	template <typename Func>
 	void loop(const Func& func) {

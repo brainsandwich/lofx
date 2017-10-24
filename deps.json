@@ -33,15 +33,6 @@
 			"branch" : "master",
 			"origin" : "https://github.com/brainsandwich/yocto-gl.git",
 			"build" : true
-		},
-		{
-			"name" : "lut",
-			"branch" : "master",
-			"origin" : "https://github.com/brainsandwich/lut.git",
-			"build" : true,
-			"build-options" : [
-				"FMT_INSTALL=ON"
-			]
 		}
 	]
 }

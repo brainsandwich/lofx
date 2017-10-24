@@ -28,7 +28,7 @@ namespace lofx {
 			glGetProgramiv(result.id, GL_INFO_LOG_LENGTH, &length);
 			char* infolog = new char[length];
 			glGetProgramInfoLog(result.id, length, nullptr, infolog);
-			lut::yell("Program link failure :\n{}\n", infolog);
+			detail::yell("Program link failure :\n%s", infolog);
 			delete[] infolog;
 		}
 
@@ -62,7 +62,7 @@ namespace lofx {
 
 	void send(const Program* program, const Uniform& uniform) {
 		if (!program->uniform_locations.count(uniform.name)) {
-			//lut::warn("Location of \"{}\" uniform not found in shader program\n", uniform.name.c_str());
+			detail::warn("Location of \"%s\" uniform not found in shader program", uniform.name.c_str());
 			return;
 		}
 
@@ -382,7 +382,7 @@ namespace lofx {
 
 	void init(const glm::u32vec2& size, const std::string& glversion) {
 		if (!glfwInit()) {
-			lut::yell("GLFW init failed\n");
+			detail::yell("GLFW init failed");
 			exit(-1);
 		}
 
@@ -398,19 +398,22 @@ namespace lofx {
 
 		glfwMakeContextCurrent(detail::state.window);
 		if (gl3wInit()) {
-			lut::yell("Failed to load OpenGL\n");
+			detail::yell("Failed to load OpenGL");
 			exit(-1);
 		}
 
-		if (glversion != "" && !gl3wIsSupported(major, minor)) {
-			lut::yell("OpenGL {0}.{1} is not supported ! Aborting ...\n", major, minor);
+		int context_major = 0, context_minor = 0;
+		glGetIntegerv(GL_MAJOR_VERSION, &context_major);
+		glGetIntegerv(GL_MINOR_VERSION, &context_minor);
+		if (glversion != "" && context_major < major || (context_major == major && context_minor < minor)) {
+			detail::yell("OpenGL %d.%d is not supported ! Aborting ...", major, minor);
 			exit(-1);
 		}
 		else {
 			glGetIntegerv(GL_MAJOR_VERSION, &major);
 			glGetIntegerv(GL_MINOR_VERSION, &minor);
-			lut::trace("LOFX initialized ; Using OpenGL {0}.{1}\n", major, minor);
 		}
+		detail::trace("LOFX initialized ; Using OpenGL %d.%d", major, minor);
 
 		glGenVertexArrays(1, &detail::state.vao);
 		glBindVertexArray(detail::state.vao);
@@ -453,6 +456,9 @@ namespace lofx {
 
 		glActiveTexture(GL_TEXTURE0);
 		glDrawElements(GL_TRIANGLES, (GLsizei) properties.indices->count, gl::translate(properties.indices->component_type), (const void*) properties.indices->view.stride);
+
+	void setdbgCallback(const debug_callback_t& callback) {
+		detail::state.debug_callback = callback;
 	}
 
 	///////////////////////////////////////////////////////////////////////////////////////

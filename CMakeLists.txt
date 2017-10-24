@@ -4,9 +4,9 @@ cmake_policy(SET CMP0048 NEW)
 
 set(LOFX_EXTERNALS_DIR ${PROJECT_SOURCE_DIR}/external)
 set(LOFX_EXTERNAL_SOURCES_DIR ${LOFX_EXTERNALS_DIR}/sources)
-set(LOFX_EXTERNAL_INCLUDE_DIR ${LOFX_EXTERNALS_DIR}/output/include)
-set(LOFX_EXTERNAL_LIBRARY_DIR ${LOFX_EXTERNALS_DIR}/output/lib)
-set(LOFX_EXTERNAL_BINARY_DIR ${LOFX_EXTERNALS_DIR}/output/bin)
+set(LOFX_EXTERNAL_INCLUDE_DIR ${LOFX_EXTERNALS_DIR}/include)
+set(LOFX_EXTERNAL_LIBRARY_DIR ${LOFX_EXTERNALS_DIR}/lib)
+set(LOFX_EXTERNAL_BINARY_DIR ${LOFX_EXTERNALS_DIR}/bin)
 
 # GL3W
 execute_process(
@@ -55,6 +55,9 @@ execute_process(COMMAND python depo.py
 find_package(OpenGL REQUIRED)
 target_link_libraries(lofx PUBLIC ${OPENGL_gl_LIBRARY})
 
+# target_link_libraries(lofx PUBLIC ${LOFX_EXTERNAL_LIBRARY_DIR}/win/x64/glew32s.lib)
+# target_include_directories(lofx PUBLIC ${LOFX_EXTERNAL_INCLUDE_DIR}/glew)
+
 add_subdirectory(${LOFX_EXTERNAL_SOURCES_DIR}/glfw)
 set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
@@ -63,10 +66,6 @@ target_link_libraries(lofx PUBLIC glfw)
 
 add_subdirectory(${LOFX_EXTERNAL_SOURCES_DIR}/glm)
 target_link_libraries(lofx PUBLIC glm)
-
-add_subdirectory(${LOFX_EXTERNAL_SOURCES_DIR}/lut)
-set(FMT_INSTALL ON CACHE BOOL "" FORCE)
-target_link_libraries(lofx PUBLIC lut)
 
 add_subdirectory(${LOFX_EXTERNAL_SOURCES_DIR}/yocto-gl)
 target_link_libraries(lofx PUBLIC yocto)
