@@ -165,6 +165,35 @@ namespace lofx {
 		return 0;
 	}
 
+	BufferAccessor createBufferAccessor(lofx::Buffer buffer, lofx::AttributeType type, std::size_t components, std::size_t length) {
+		lofx::BufferView buffer_view;
+		buffer_view.buffer = buffer;
+		buffer_view.offset = 0;
+
+		lofx::BufferAccessor accessor;
+		accessor.view = buffer_view;
+		accessor.component_type = type;
+		accessor.components = components;
+		accessor.count = length;
+
+		return accessor;
+	}
+
+	AttributePack buildFlatAttributePack(const std::initializer_list<BufferAccessor>& attributes) {
+		AttributePack pack;
+		std::size_t total_stride = 0;
+		uint32_t count = 0;
+		for (const auto& attrib : attributes) {
+			if (pack.bufferid == 0)
+				pack.bufferid = attrib.view.buffer.id;
+			pack.attributes[count] = attrib;
+			pack.attributes[count].view.stride = 0;
+			pack.attributes[count].offset = 0;
+		}
+
+		return pack;
+	}
+
 	AttributePack buildInterleavedAttributePack(const std::initializer_list<BufferAccessor>& attributes) {
 		AttributePack pack;
 		std::size_t total_stride = 0;
@@ -195,6 +224,7 @@ namespace lofx {
 			pack.attributes[count].offset = total_length;
 			total_length += pack.attributes[count].components * pack.attributes[count].count * attribTypeSize(pack.attributes[count].component_type);
 			pack.attributes[count].view.stride = 0;
+			count++;
 		}
 		return pack;
 	}
@@ -215,13 +245,13 @@ namespace lofx {
 			case lofx::AttributeType::Double:
 				glVertexAttribPointer(attrib.first,
 					accessor.components, gl::translate(accessor.component_type), accessor.normalized,
-					(GLsizei) accessor.view.stride, (const void*) (accessor.offset));
+					(GLsizei) accessor.view.stride, (const void*) (accessor.view.offset + accessor.offset));
 				break;
 			case lofx::AttributeType::Int:
 			case lofx::AttributeType::UnsignedInt:
 				glVertexAttribIPointer(attrib.first,
 					accessor.components, gl::translate(accessor.component_type),
-					(GLsizei) accessor.view.stride, (const void*) (accessor.offset));
+					(GLsizei) accessor.view.stride, (const void*) (accessor.view.offset + accessor.offset));
 			}
 		}
 	}

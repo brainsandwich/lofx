@@ -121,33 +121,34 @@ namespace lofx {
 	};
 
 	struct BufferStorage {
-		static const uint32_t Dynamic = 0x1;
-		static const uint32_t MapRead = 0x1 << 1;
-		static const uint32_t MapWrite = 0x1 << 2;
-		static const uint32_t MapPersistent = 0x1 << 3;
-		static const uint32_t MapCoherent = 0x1 << 4;
-		static const uint32_t ClientStorage = 0x1 << 5;
+		using type = uint8_t;
+		static const type Dynamic = 0x1;
+		static const type MapRead = 0x1 << 1;
+		static const type MapWrite = 0x1 << 2;
+		static const type MapPersistent = 0x1 << 3;
+		static const type MapCoherent = 0x1 << 4;
+		static const type ClientStorage = 0x1 << 5;
 	};
 
 	struct Buffer {
 		std::vector<uint8_t> data;
-		std::size_t size;
+		std::size_t size = 0;
 		BufferType type;
-		uint32_t id;
+		uint32_t id = 0;
 	};
 
 	struct BufferView {
 		Buffer buffer;
-		std::size_t offset;
-		std::size_t length;
-		std::size_t stride;
+		std::size_t offset = 0;
+		std::size_t length = 0;
+		std::size_t stride = 0;
 	};
 
 	struct BufferAccessor {
-		bool normalized;
-		std::size_t offset;
-		uint32_t components;
-		uint32_t count;
+		bool normalized = false;
+		std::size_t offset = 0;
+		uint32_t components = 0;
+		uint32_t count = 0;
 		BufferView view;
 		AttributeType component_type;
 	};
@@ -467,6 +468,8 @@ namespace lofx {
 	void send(const Buffer* buffer, const void* data, std::size_t origin, std::size_t size);
 	void release(Buffer* buffer);
 	uint8_t attribTypeSize(AttributeType type);
+	BufferAccessor createBufferAccessor(lofx::Buffer buffer, lofx::AttributeType type, std::size_t components, std::size_t length);
+	AttributePack buildFlatAttributePack(const std::initializer_list<BufferAccessor>& attributes);
 	AttributePack buildInterleavedAttributePack(const std::initializer_list<BufferAccessor>& attributes);
 	AttributePack buildSequentialAttributePack(const std::initializer_list<BufferAccessor>& attributes);
 	void bind(AttributePack* pack);
