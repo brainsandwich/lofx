@@ -161,10 +161,6 @@ namespace lofx {
 	///////////////////////////////////////////////////////////////////////////////////////
 	////////// TEXTURES AND FRAMEBUFFERS //////////////////////////////////////////////////
 	///////////////////////////////////////////////////////////////////////////////////////
-	struct Framebuffer {
-		uint32_t id;
-	};
-
 	enum class TextureMagnificationFilter {
 		Nearest,
 		Linear
@@ -360,6 +356,18 @@ namespace lofx {
 		StencilIndex
 	};
 
+	struct Renderbuffer {
+		uint32_t id;
+		uint32_t width;
+		uint32_t height;
+	};
+
+	struct Framebuffer {
+		uint32_t id = 0;
+		std::vector<Texture> attachments;
+		Renderbuffer renderbuffer;
+	};
+
 	///////////////////////////////////////////////////////////////////////////////////////
 	////////// COMMAND PROPERTIES /////////////////////////////////////////////////////////
 	///////////////////////////////////////////////////////////////////////////////////////
@@ -422,7 +430,8 @@ namespace lofx {
 		GLenum translate(TextureTarget value);
 		GLenum translateShaderType(ShaderType::type value);
 		GLbitfield translateShaderTypeMask(ShaderType::type value);
-		GLbitfield translateBufferStorage(uint32_t value);
+		GLbitfield translateBufferStorage(BufferStorage::type value);
+		std::string translateFramebufferStatus(GLenum value);
 	}
 
 	// Buffers
@@ -456,6 +465,16 @@ namespace lofx {
 	void release(Pipeline* pipeline);
 	void release(Program* program);
 
+	// Renderbuffer
+	Renderbuffer createRenderBuffer(uint32_t width, uint32_t height);
+	void release(Renderbuffer* renderbuffer);
+
+	// Framebuffer
+	Framebuffer createFramebuffer();
+	void build(Framebuffer* framebuffer);
+	void release(Framebuffer* framebuffer);
+	uint8_t* read(Framebuffer* framebuffer, uint32_t attachment, std::size_t width, std::size_t height, ImageDataFormat format, ImageDataType data_type);
+	Framebuffer defaultFramebuffer();
 	// State Management
 	void sync();
 	void init(const glm::u32vec2& size, const std::string& glversion = "");
@@ -472,6 +491,4 @@ namespace lofx {
 		}
 	}
 
-	// Framebuffers
-	Framebuffer current_fbo();
 }

@@ -372,6 +372,123 @@ namespace lofx {
 	}
 
 	///////////////////////////////////////////////////////////////////////////////////////
+	////////// FRAMEBUFFER ////////////////////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////////////
+
+	Renderbuffer createRenderBuffer(uint32_t width, uint32_t height) {
+		Renderbuffer result;
+		glGenRenderbuffers(1, &result.id);
+		glBindRenderbuffer(GL_RENDERBUFFER, result.id);
+		glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, width, height);
+		glBindRenderbuffer(GL_RENDERBUFFER, 0);
+		return result;
+	}
+
+	void release(Renderbuffer* renderbuffer) {
+		if (glIsRenderbuffer(renderbuffer->id))
+			glDeleteRenderbuffers(1, &renderbuffer->id);
+	}
+
+	Framebuffer createFramebuffer() {
+		Framebuffer result;
+		glGenFramebuffers(1, &result.id);
+		return result;
+	}
+
+	void build(Framebuffer* framebuffer) {
+		if (!glIsRenderbuffer(framebuffer->renderbuffer.id)) {
+			detail::yell("framebuffer has a bad renderbuffer attachment\n");
+			return;
+		}
+
+		glBindFramebuffer(GL_FRAMEBUFFER, framebuffer->id);
+		glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, framebuffer->renderbuffer.id);
+
+		std::size_t current_attachment = 0;
+		std::vector<GLenum> draw_attachments;
+		for (std::size_t i = 0; i < framebuffer->attachments.size(); i++) {
+			const auto& texture = framebuffer->attachments[i];
+			switch (texture.target) {
+			case TextureTarget::Texture1d:
+			case TextureTarget::ProxyTexture1d: {
+				GLenum attachment = GL_COLOR_ATTACHMENT0 + current_attachment++;
+				draw_attachments.push_back(attachment);
+				glFramebufferTexture1D(GL_FRAMEBUFFER, attachment, gl::translate(texture.target), texture.id, 0);
+				break;
+			}
+
+			case TextureTarget::Texture2d:
+			case TextureTarget::ProxyTexture2d:
+			case TextureTarget::TextureRectangle:
+			case TextureTarget::ProxyTextureRectangle:
+			case TextureTarget::TextureCubeMapPositiveX:
+			case TextureTarget::TextureCubeMapNegativeX:
+			case TextureTarget::TextureCubeMapPositiveY:
+			case TextureTarget::TextureCubeMapNegativeY:
+			case TextureTarget::TextureCubeMapPositiveZ:
+			case TextureTarget::TextureCubeMapNegativeZ:
+			case TextureTarget::ProxyTextureCubeMap: {
+				GLenum attachment = GL_COLOR_ATTACHMENT0 + current_attachment++;
+				draw_attachments.push_back(attachment);
+				glFramebufferTexture2D(GL_FRAMEBUFFER, attachment, gl::translate(texture.target), texture.id, 0);
+				break;
+			}
+
+			case TextureTarget::Texture3d:
+			case TextureTarget::ProxyTexture3d: {
+				GLenum attachment = GL_COLOR_ATTACHMENT0 + current_attachment++;
+				draw_attachments.push_back(attachment);
+				glFramebufferTexture3D(GL_FRAMEBUFFER, attachment, gl::translate(texture.target), texture.id, 0, 0);
+				break;
+			}
+			
+			case TextureTarget::Texture1dArray:
+			case TextureTarget::ProxyTexture1dArray:
+			case TextureTarget::Texture2dArray:
+			case TextureTarget::ProxyTexture2dArray: {
+				for (std::size_t i = 0; i < texture.depth; i++) {
+					GLenum attachment = GL_COLOR_ATTACHMENT0 + current_attachment++;
+					draw_attachments.push_back(attachment);
+					glFramebufferTextureLayer(GL_FRAMEBUFFER, attachment, texture.id, 0, i);
+				}
+				break;
+			}
+			}
+		}
+
+		int32_t max_color_attachments = 0;
+		glGetIntegerv(GL_MAX_COLOR_ATTACHMENTS, &max_color_attachments);
+		if (current_attachment > max_color_attachments) {
+			detail::warn("framebuffer has too many color attachments ({}, max is {})",
+				current_attachment,
+				max_color_attachments);
+		}
+
+		glDrawBuffers(draw_attachments.size(), draw_attachments.data());
+		GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+		if (status != GL_FRAMEBUFFER_COMPLETE)
+			detail::yell("framebuffer incomplete : %s", gl::translateFramebufferStatus(glCheckFramebufferStatus(GL_FRAMEBUFFER)).c_str());
+
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	}
+
+	void release(Framebuffer* framebuffer) {
+		if (glIsFramebuffer(framebuffer->id))
+			glDeleteFramebuffers(1, &framebuffer->id);
+	}
+
+	uint8_t* read(Framebuffer* framebuffer, uint32_t attachment, std::size_t width, std::size_t height, ImageDataFormat format, ImageDataType data_type) {
+		uint8_t* pixels = new uint8_t[width * height * sizeof(float)];
+		glReadBuffer(GL_COLOR_ATTACHMENT0 + attachment);
+		glReadPixels(0, 0, width, height, gl::translate(format), gl::translate(data_type), pixels);
+		return pixels;
+	}
+
+	Framebuffer defaultFramebuffer() {
+		return Framebuffer();
+	}
+
+	///////////////////////////////////////////////////////////////////////////////////////
 	////////// STATE //////////////////////////////////////////////////////////////////////
 	///////////////////////////////////////////////////////////////////////////////////////
 	namespace detail {
@@ -428,8 +545,6 @@ namespace lofx {
 		glfwTerminate();
 	}
 
-	Framebuffer current_fbo() {
-		return Framebuffer();
 	}
 
 	void draw(const DrawProperties& properties) {
@@ -467,7 +582,7 @@ namespace lofx {
 	////////// TRANSLATIONS ///////////////////////////////////////////////////////////////
 	///////////////////////////////////////////////////////////////////////////////////////
 	namespace gl {
-		GLbitfield translateBufferStorage(uint32_t value) {
+		GLbitfield translateBufferStorage(BufferStorage::type value) {
 			GLbitfield result = 0;
 			if (value & BufferStorage::Dynamic) result |= GL_DYNAMIC_STORAGE_BIT;
 			if (value & BufferStorage::MapRead) result |= GL_MAP_READ_BIT;
@@ -680,6 +795,20 @@ namespace lofx {
 			}
 			return GL_NONE;
 		}
+	
+		std::string translateFramebufferStatus(GLenum value) {
+			switch (value) {
+			case GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT: return "incomplete attachment";
+			case GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT: return "incomplete missing attachment";
+			case GL_FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER: return "incomplete draw buffer";
+			case GL_FRAMEBUFFER_INCOMPLETE_READ_BUFFER: return "incomplete read buffer";
+			case GL_FRAMEBUFFER_UNSUPPORTED: return "unsupported";
+			case GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE: return "incomplete multisample";
+			case GL_FRAMEBUFFER_INCOMPLETE_LAYER_TARGETS: return "incomplete layer targets";
+			}
+			return "unknown";
+		}
+
 	}
 
 }
