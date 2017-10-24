@@ -317,11 +317,11 @@ namespace lofx {
 	};
 
 	struct Texture {
-		const TextureSampler* sampler;
+		uint32_t id;
+		uint32_t width, height, depth;
+		TextureSampler sampler;
 		TextureTarget target;
 		TextureInternalFormat internal_format;
-		uint32_t width, height, depth;
-		uint32_t id;
 	};
 
 	enum class ImageDataType {
@@ -473,10 +473,10 @@ namespace lofx {
 
 	// Textures
 	Texture createTexture(std::size_t width, std::size_t height, std::size_t depth, const TextureSampler* sampler, TextureTarget target = TextureTarget::Texture2d, TextureInternalFormat format = TextureInternalFormat::RGBA8);
-	void send(const Texture* texture, const void* data, const glm::u32vec3& size, const glm::u32vec3& offset, ImageDataFormat format, ImageDataType data_type);
-	void send(const Texture* texture, const void* data, const glm::u32vec3& size, const glm::u32vec3& offset);
+	void send(const Texture* texture, const void* data, const glm::u32vec3& offset, const glm::u32vec3& size, ImageDataFormat format, ImageDataType data_type);
+	void send(const Texture* texture, const void* data, const glm::u32vec3& offset, const glm::u32vec3& size);
 	void send(const Texture* texture, const void* data, ImageDataFormat format = ImageDataFormat::RGBA, ImageDataType data_type = ImageDataType::UnsignedByte);
-	void bind(const Texture* texture);
+	void* read(const Texture* texture, ImageDataFormat format, ImageDataType data_type);
 	void release(Texture* texture);
 
 	// Samplers

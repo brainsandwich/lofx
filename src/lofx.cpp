@@ -231,7 +231,8 @@ namespace lofx {
 	///////////////////////////////////////////////////////////////////////////////////////
 	Texture createTexture(std::size_t width, std::size_t height, std::size_t depth, const TextureSampler* sampler, TextureTarget target, TextureInternalFormat format) {
 		Texture tex;
-		tex.sampler = sampler;
+		if (sampler)
+			tex.sampler = *sampler;
 		tex.width = width;
 		tex.height = height;
 		tex.depth = depth;
@@ -270,8 +271,8 @@ namespace lofx {
 			break;
 		}
 
-		if (tex.sampler) {
-			TextureMinificationFilter min = tex.sampler->parameters.min;
+		if (sampler) {
+			TextureMinificationFilter min = tex.sampler.parameters.min;
 			if (min == TextureMinificationFilter::LinearMipmapLinear
 				|| min == TextureMinificationFilter::LinearMipmapNearest
 				|| min == TextureMinificationFilter::NearestMipmapLinear
@@ -284,8 +285,9 @@ namespace lofx {
 		return tex;
 	}
 
-	void send(const Texture* texture, const void* data, const glm::u32vec3& size, const glm::u32vec3& offset, ImageDataFormat format, ImageDataType data_type) {
+	void send(const Texture* texture, const void* data, const glm::u32vec3& offset, const glm::u32vec3& size, ImageDataFormat format, ImageDataType data_type) {
 		glBindTexture(gl::translate(texture->target), texture->id);
+
 		switch (texture->target) {
 		case TextureTarget::Texture1d:
 		case TextureTarget::ProxyTexture1d:
@@ -329,17 +331,24 @@ namespace lofx {
 	}
 
 	void send(const Texture* texture, const void* data,
-		const glm::u32vec3& size,
-		const glm::u32vec3& offset) {
+		const glm::u32vec3& offset,
+		const glm::u32vec3& size) {
 		send(texture, data, size, offset, ImageDataFormat::RGBA, ImageDataType::UnsignedByte);
 	}
 	void send(const Texture* texture, const void* data,
 		ImageDataFormat format,
 		ImageDataType data_type) {
-		send(texture, data, glm::u32vec3(texture->width, texture->height, texture->depth), glm::u32vec3(), format, data_type);
+		send(texture, data, glm::u32vec3(), glm::u32vec3(texture->width, texture->height, texture->depth), format, data_type);
 	}
 
-	void release(const Texture* texture) {
+	void* read(const Texture* texture, ImageDataFormat format, ImageDataType data_type) {
+		float* pixels = nullptr;
+		glBindTexture(gl::translate(texture->target), texture->id);
+		glGetTexImage(gl::translate(texture->target), 0, gl::translate(format), gl::translate(data_type), pixels);
+		return pixels;
+	}
+
+	void release(Texture* texture) {
 		if (glIsTexture(texture->id))
 			glDeleteTextures(1, &texture->id);
 	}
