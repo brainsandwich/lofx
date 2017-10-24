@@ -505,10 +505,13 @@ namespace lofx {
 	void release(Framebuffer* framebuffer);
 	uint8_t* read(Framebuffer* framebuffer, uint32_t attachment, std::size_t width, std::size_t height, ImageDataFormat format, ImageDataType data_type);
 	Framebuffer defaultFramebuffer();
+
 	// State Management
 	void sync();
-	void init(const glm::u32vec2& size, const std::string& glversion = "");
+	void init(const glm::u32vec2& size, const std::string& glversion = "", bool invisible = false);
 	void terminate();
+	void swapbuffers();
+	void clear(Framebuffer* framebuffer, const ClearProperties& properties = ClearProperties());
 	void draw(const DrawProperties& properties);
 	void setdbgCallback(const debug_callback_t& callback);
 
@@ -516,9 +519,8 @@ namespace lofx {
 	void loop(const Func& func) {
 		while (!glfwWindowShouldClose(detail::state.window)) {
 			func();
-			glfwSwapBuffers(detail::state.window);
+			swapbuffers();
 			glfwPollEvents();
 		}
 	}
-
 }

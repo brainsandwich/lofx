@@ -2,8 +2,6 @@
 
 #include <glm/gtc/type_ptr.hpp>
 
-
-
 namespace lofx {
 
 	///////////////////////////////////////////////////////////////////////////////////////
@@ -538,12 +536,13 @@ namespace lofx {
 		glFinish();
 	}
 
-	void init(const glm::u32vec2& size, const std::string& glversion) {
+	void init(const glm::u32vec2& size, const std::string& glversion, bool invisible) {
 		if (!glfwInit()) {
 			detail::yell("GLFW init failed");
 			exit(-1);
 		}
 
+		glfwWindowHint(GLFW_VISIBLE, !invisible);
 		int major, minor;
 		if (glversion != "") {
 			sscanf_s(glversion.c_str(), "%d.%d", &major, &minor);
@@ -552,7 +551,7 @@ namespace lofx {
 		}
 
 		glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-		detail::state.window = glfwCreateWindow(size.x, size.y, "hello", nullptr, nullptr);
+		detail::state.window = glfwCreateWindow(size.x, size.y, "", nullptr, nullptr);
 
 		glfwMakeContextCurrent(detail::state.window);
 		if (gl3wInit()) {
