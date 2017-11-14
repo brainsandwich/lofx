@@ -9,22 +9,30 @@
 #include <memory>
 #include <unordered_map>
 
+using buffer_t = std::vector<uint8_t>;
+
+inline void serialize(buffer_t* buffer, const uint8_t* object, size_t size) {
+	buffer->resize(size);
+	std::copy(object, object + size, buffer->begin());
+}
+
+inline void deserialize(const buffer_t& buffer, uint8_t* object) {
+	std::copy(buffer.cbegin(), buffer.cend(), object);
+}
+
+//template <typename T> inline void serialize(buffer_t* buffer, const T& object) {
+//	buffer->resize(sizeof(object));
+//	const uint8_t* addr = reinterpret_cast<const uint8_t*>(&object);
+//	std::copy(&addr, &addr + sizeof(object), buffer->begin());
+//}
+//
+//template <typename T> inline void deserialize(buffer_t& buffer, T* object) {
+//	object = reinterpret_cast<T*>(buffer.data());
+//}
+
 namespace lofx {
 
-	inline void onerror(GLenum error) {
-		if (error == GL_NO_ERROR)
-			return;
-
-		switch (error) {
-		case GL_INVALID_ENUM: detail::yell("OpenGL : Invalid enum\n"); return;
-		case GL_INVALID_VALUE: detail::yell("OpenGL : Invalid value\n"); return;
-		case GL_INVALID_OPERATION: detail::yell("OpenGL : Invalid operation\n"); return;
-		case GL_INVALID_FRAMEBUFFER_OPERATION: detail::yell("OpenGL : Invalid framebuffer operation\n"); return;
-		case GL_OUT_OF_MEMORY: detail::yell("OpenGL : Out of memory\n"); return;
-		case GL_STACK_UNDERFLOW: detail::yell("OpenGL : Stack underflow\n"); return;
-		case GL_STACK_OVERFLOW: detail::yell("OpenGL : Stack overflow\n"); return;
-		}
-	}
+	inline void onerror(GLenum error);
 
 	///////////////////////////////////////////////////////////////////////////////////////
 	////////// SHADERS AND PROGRAMS ///////////////////////////////////////////////////////
@@ -44,14 +52,23 @@ namespace lofx {
 	};
 
 	struct Program {
-		uint32_t id;
+		bool valid = false;
+		uint32_t id = 0;
 		ShaderType::type typemask;
 		std::unordered_map<std::string, uint32_t> uniform_locations;
 	};
 
 	struct Pipeline {
-		uint32_t id;
-		std::list<Program*> stages;
+		uint32_t id = 0;
+		Program vertex_program;
+		Program tesselation_control_program;
+		Program tesselation_evaluation_program;
+		Program geometry_program;
+		Program fragment_program;
+		Program compute_program;
+
+		bool operator==(const Pipeline& other) const { return id == other.id; }
+		bool operator!=(const Pipeline& other) const { return !(*this == other); }
 	};
 
 	enum class UniformType {
@@ -63,6 +80,7 @@ namespace lofx {
 	struct Uniform {
 		std::string name;
 		UniformType type;
+		ShaderType::type targets;
 		union {
 			uint32_t uint_value;
 			int32_t int_value;
@@ -77,8 +95,9 @@ namespace lofx {
 
 		Uniform() {}
 
-		template <typename T> Uniform(const std::string& name, const T& value)
-			: name(name) {
+		template <typename T> Uniform(const std::string& name, const T& value, ShaderType::type targets = ShaderType::Any)
+			: name(name)
+			, targets(targets) {
 			const auto& tid = typeid(T);
 			if (tid == typeid(float))type = UniformType::Float;
 			else if (tid == typeid(glm::vec2)) type = UniformType::Float2;
@@ -131,7 +150,6 @@ namespace lofx {
 	};
 
 	struct Buffer {
-		std::vector<uint8_t> data;
 		std::size_t size = 0;
 		BufferType type;
 		uint32_t id = 0;
@@ -154,7 +172,6 @@ namespace lofx {
 	};
 
 	struct AttributePack {
-		uint32_t bufferid = 0;
 		std::unordered_map<uint32_t, BufferAccessor> attributes;
 	};
 
@@ -395,14 +412,23 @@ namespace lofx {
 		bool faceculling_test = false;
 		CullFace cullface = CullFace::Back;
 		FrontFace frontface = FrontFace::CounterClockWise;
+
+		bool operator==(const GraphicsProperties& other) const {
+			return depth_test == other.depth_test
+				&& stencil_test == other.stencil_test
+				&& faceculling_test == other.faceculling_test
+				&& cullface == other.cullface
+				&& frontface == other.frontface;
+		}
+		bool operator!=(const GraphicsProperties& other) const { return !(*this == other);}
 	};
 
 	struct DrawProperties {
 		const Framebuffer* fbo = nullptr;
-		const BufferAccessor* indices;
-		const AttributePack* attributes;
-		std::unordered_map<std::string, const Texture*> textures;
-		const Pipeline* pipeline;
+		const BufferAccessor* indices = nullptr;
+		const AttributePack* attributes = nullptr;
+		std::unordered_map<std::string, Texture> textures;
+		Pipeline pipeline;
 
 		GraphicsProperties graphics_properties = GraphicsProperties();
 	};
@@ -410,23 +436,98 @@ namespace lofx {
 	///////////////////////////////////////////////////////////////////////////////////////
 	////////// STATE //////////////////////////////////////////////////////////////////////
 	///////////////////////////////////////////////////////////////////////////////////////
-	enum class DebugLevel {
+	enum class DebugLevel : uint8_t {
 		Trace, Warn, Error
 	};
 
-	using debug_callback_t = std::function<void(DebugLevel, const std::string&)>;
+	enum class DebugSource : uint8_t {
+		Lofx, Glfw, OpenGL
+	};
+
+	struct GlfwErrorParams {
+		int errcode;
+
+		std::string errcode_str() {
+			switch (errcode) {
+				case GLFW_NOT_INITIALIZED: return "GLFW_NOT_INITIALIZED";
+				case GLFW_NO_CURRENT_CONTEXT: return "GLFW_NO_CURRENT_CONTEXT";
+				case GLFW_INVALID_ENUM: return "GLFW_INVALID_ENUM";
+				case GLFW_INVALID_VALUE: return "GLFW_INVALID_VALUE";
+				case GLFW_OUT_OF_MEMORY: return "GLFW_OUT_OF_MEMORY";
+				case GLFW_API_UNAVAILABLE: return "GLFW_API_UNAVAILABLE";
+				case GLFW_VERSION_UNAVAILABLE: return "GLFW_VERSION_UNAVAILABLE";
+				case GLFW_PLATFORM_ERROR: return "GLFW_PLATFORM_ERROR";
+				case GLFW_FORMAT_UNAVAILABLE: return "GLFW_FORMAT_UNAVAILABLE";
+			}
+			return "unknown";
+		}
+	};
+
+	struct OpenGLErrorParams {
+		GLenum type;
+		GLenum severity;
+		GLenum source;
+		
+		std::string type_str() {
+			switch (type) {
+				case GL_DEBUG_TYPE_ERROR: return "error";
+				case GL_DEBUG_TYPE_DEPRECATED_BEHAVIOR: return "deprecated";
+				case GL_DEBUG_TYPE_UNDEFINED_BEHAVIOR: return "undefined_behavior";
+				case GL_DEBUG_TYPE_PORTABILITY: return "portability";
+				case GL_DEBUG_TYPE_PERFORMANCE: return "performance";
+				case GL_DEBUG_TYPE_OTHER: return "other";
+				case GL_DEBUG_TYPE_MARKER: return "marker";
+				case GL_DEBUG_TYPE_PUSH_GROUP: return "push_group";
+				case GL_DEBUG_TYPE_POP_GROUP: return "pop_group";
+			}
+			return "unknown";
+		}
+
+		std::string severity_str() {
+			switch (severity) {
+				case GL_DEBUG_SEVERITY_NOTIFICATION: return "notification";
+				case GL_DEBUG_SEVERITY_LOW: return "low";
+				case GL_DEBUG_SEVERITY_MEDIUM: return "medium";
+				case GL_DEBUG_SEVERITY_HIGH: return "high";
+			}
+			return "unknown";
+		}
+
+		std::string source_str() {
+			switch (source) {
+				case GL_DEBUG_SOURCE_API: return "api";
+				case GL_DEBUG_SOURCE_WINDOW_SYSTEM: return "window";
+				case GL_DEBUG_SOURCE_SHADER_COMPILER: return "shader_compiler";
+				case GL_DEBUG_SOURCE_THIRD_PARTY: return "third_party";
+				case GL_DEBUG_SOURCE_APPLICATION: return "application";
+				case GL_DEBUG_SOURCE_OTHER: return "other";
+			}
+			return "unknown";
+		}
+	};
+
+	struct DebugMessageDetails {
+		DebugLevel level;
+		DebugSource source;
+		buffer_t params;
+	};
+
+	using debug_callback_t = std::function<void(const DebugMessageDetails&, const std::string&)>;
 
 	namespace detail {
 		template <typename ... Args> void trace(const std::string& msg, Args ... args) {
-			if (state.debug_callback) state.debug_callback(DebugLevel::Trace, string_format(msg, args ...));
+			DebugMessageDetails details { DebugLevel::Trace, DebugSource::Lofx };
+			if (state.debug_callback) state.debug_callback(details, string_format(msg, args ...));
 		}
 
 		template <typename ... Args> void warn(const std::string& msg, Args ... args) {
-			if (state.debug_callback) state.debug_callback(DebugLevel::Warn, string_format(msg, args ...));
+			DebugMessageDetails details{ DebugLevel::Trace, DebugSource::Lofx };
+			if (state.debug_callback) state.debug_callback(details, string_format(msg, args ...));
 		}
 
 		template <typename ... Args> void yell(const std::string& msg, Args ... args) {
-			if (state.debug_callback) state.debug_callback(DebugLevel::Error, string_format(msg, args ...));
+			DebugMessageDetails details{ DebugLevel::Trace, DebugSource::Lofx };
+			if (state.debug_callback) state.debug_callback(details, string_format(msg, args ...));
 		}
 
 		template<typename ... Args> std::string string_format(const std::string& format, Args ... args) {
@@ -439,10 +540,25 @@ namespace lofx {
 		struct State {
 			GLFWwindow* window;
 			uint32_t vao;
+			DrawProperties lastdraw;
 			debug_callback_t debug_callback;
 		};
 		extern State state;
 	}
+
+	struct DebugFlags {
+		using type = uint32_t;
+		static const type glfw = 0x1;
+		static const type gl_compiler = 0x1 << 1;
+		static const type gl_performance = 0x1 << 2;
+		static const type gl_third = 0x1 << 1;
+		static const type everything = 0x1 << 1;
+	};
+
+	struct LofxSettings {
+		bool debug_mode = true;
+		uint32_t debug_flags;
+	};
 
 	///////////////////////////////////////////////////////////////////////////////////////
 	////////// FUNCTIONS //////////////////////////////////////////////////////////////////
@@ -488,9 +604,9 @@ namespace lofx {
 
 	// Programs
 	Program createProgram(ShaderType::type typemask, const std::initializer_list<std::string>& sources);
-	Pipeline createPipeline(const std::initializer_list<Program*>& programs = {});
-	const Program* findStage(const Pipeline* program, ShaderType::type typemask);
+	Pipeline createPipeline(const std::vector<Program>& programs = {});
 	void send(const Program* program, const Uniform& uniform);
+	void send(const Pipeline* pipeline, const Uniform& uniform);
 	void use(const Pipeline* pipeline);
 	void release(Pipeline* pipeline);
 	void release(Program* program);
@@ -511,7 +627,7 @@ namespace lofx {
 	void init(const glm::u32vec2& size, const std::string& glversion = "", bool invisible = false);
 	void terminate();
 	void swapbuffers();
-	void clear(Framebuffer* framebuffer, const ClearProperties& properties = ClearProperties());
+	void clear(const Framebuffer* framebuffer, const ClearProperties& properties = ClearProperties());
 	void draw(const DrawProperties& properties);
 	void setdbgCallback(const debug_callback_t& callback);
 

@@ -4,6 +4,21 @@
 
 namespace lofx {
 
+	void onerror(GLenum error) {
+		if (error == GL_NO_ERROR)
+			return;
+
+		switch (error) {
+		case GL_INVALID_ENUM: detail::yell("OpenGL : Invalid enum\n"); return;
+		case GL_INVALID_VALUE: detail::yell("OpenGL : Invalid value\n"); return;
+		case GL_INVALID_OPERATION: detail::yell("OpenGL : Invalid operation\n"); return;
+		case GL_INVALID_FRAMEBUFFER_OPERATION: detail::yell("OpenGL : Invalid framebuffer operation\n"); return;
+		case GL_OUT_OF_MEMORY: detail::yell("OpenGL : Out of memory\n"); return;
+		case GL_STACK_UNDERFLOW: detail::yell("OpenGL : Stack underflow\n"); return;
+		case GL_STACK_OVERFLOW: detail::yell("OpenGL : Stack overflow\n"); return;
+		}
+	}
+
 	///////////////////////////////////////////////////////////////////////////////////////
 	////////// SHADERS AND PROGRAMS ///////////////////////////////////////////////////////
 	///////////////////////////////////////////////////////////////////////////////////////
@@ -28,36 +43,37 @@ namespace lofx {
 			glGetProgramInfoLog(result.id, length, nullptr, infolog);
 			detail::yell("Program link failure :\n%s", infolog);
 			delete[] infolog;
-		}
+		} else {
+			result.valid = true;
 
-		// Retrieve uniform locations
-		int32_t uniform_count = 0;
-		glGetProgramiv(result.id, GL_ACTIVE_UNIFORMS, &uniform_count);
-		for (uint32_t i = 0; i < uniform_count; i++) {
-			char* name = new char[512];
-			int32_t length = 0;
-			glGetActiveUniformName(result.id, i, 512, &length, name);
-			result.uniform_locations[std::string(name)] = i;
-			delete[] name;
+			// Retrieve uniform locations
+			int32_t uniform_count = 0;
+			glGetProgramiv(result.id, GL_ACTIVE_UNIFORMS, &uniform_count);
+			for (uint32_t i = 0; i < uniform_count; i++) {
+				char* name = new char[512];
+				int32_t length = 0;
+				glGetActiveUniformName(result.id, i, 512, &length, name);
+				result.uniform_locations[std::string(name)] = i;
+				delete[] name;
+			}
 		}
 
 		return result;
 	}
 
-	Pipeline createPipeline(const std::initializer_list<Program*>& programs) {
+	Pipeline createPipeline(const std::vector<Program>& programs) {
 		Pipeline result;
 		glGenProgramPipelines(1, &result.id);
-		if (programs.size() != 0)
-			result.stages = programs;
-		return result;
-	}
-
-	const Program* findStage(const Pipeline* pipeline, ShaderType::type typemask) {
-		for (const auto& stage : pipeline->stages) {
-			if (stage->typemask & typemask)
-				return stage;
+		for (const Program& prog : programs) {
+			if (prog.typemask == ShaderType::Vertex) result.vertex_program = prog;
+			else if (prog.typemask == ShaderType::Vertex) result.vertex_program = prog;
+			else if (prog.typemask == ShaderType::TessellationControl) result.tesselation_control_program = prog;
+			else if (prog.typemask == ShaderType::TessellationEvaluation) result.tesselation_evaluation_program = prog;
+			else if (prog.typemask == ShaderType::Geometry) result.geometry_program = prog;
+			else if (prog.typemask == ShaderType::Fragment) result.fragment_program = prog;
+			else if (prog.typemask == ShaderType::Compute) result.compute_program = prog;
 		}
-		return nullptr;
+		return result;
 	}
 
 	void send(const Program* program, const Uniform& uniform) {
@@ -98,23 +114,49 @@ namespace lofx {
 		}
 	}
 
+	void send(const Pipeline* pipeline, const Uniform& uniform) {
+		uint32_t pid = pipeline->id;
+		if (pipeline->vertex_program.valid && uniform.targets & lofx::ShaderType::Vertex)
+			send(&pipeline->vertex_program, uniform);
+		if (pipeline->tesselation_control_program.valid && uniform.targets & lofx::ShaderType::TessellationControl)
+			send(&pipeline->tesselation_control_program, uniform);
+		if (pipeline->tesselation_evaluation_program.valid && uniform.targets & lofx::ShaderType::TessellationEvaluation)
+			send(&pipeline->tesselation_evaluation_program, uniform);
+		if (pipeline->geometry_program.valid && uniform.targets & lofx::ShaderType::Geometry)
+			send(&pipeline->geometry_program, uniform);
+		if (pipeline->fragment_program.valid && uniform.targets & lofx::ShaderType::Fragment)
+			send(&pipeline->fragment_program, uniform);
+		if (pipeline->compute_program.valid && uniform.targets & lofx::ShaderType::Compute)
+			send(&pipeline->compute_program, uniform);
+	}
+
 	void use(const Pipeline* pipeline) {
 		glUseProgram(0);
 		glUseProgramStages(pipeline->id, GL_ALL_SHADER_BITS, 0);
-		for (const auto& stage : pipeline->stages) 
-			glUseProgramStages(pipeline->id, gl::translateShaderTypeMask(stage->typemask), stage->id);
+
+		// if some program is invalid, id should be 0
+		glUseProgramStages(pipeline->id, GL_VERTEX_SHADER_BIT, pipeline->vertex_program.id);
+		glUseProgramStages(pipeline->id, GL_TESS_CONTROL_SHADER_BIT, pipeline->tesselation_control_program.id);
+		glUseProgramStages(pipeline->id, GL_TESS_EVALUATION_SHADER_BIT, pipeline->tesselation_evaluation_program.id);
+		glUseProgramStages(pipeline->id, GL_GEOMETRY_SHADER_BIT, pipeline->geometry_program.id);
+		glUseProgramStages(pipeline->id, GL_FRAGMENT_SHADER_BIT, pipeline->fragment_program.id);
+		glUseProgramStages(pipeline->id, GL_COMPUTE_SHADER_BIT, pipeline->compute_program.id);
 
 		glBindProgramPipeline(pipeline->id);
 	}
 
 	void release(Pipeline* pipeline) {
-		if (glIsProgramPipeline(pipeline->id))
+		if (glIsProgramPipeline(pipeline->id)) {
 			glDeleteProgramPipelines(1, &pipeline->id);
+			pipeline->id = 0;
+		}
 	}
 
 	void release(Program* program) {
-		if (glIsProgram(program->id))
+		if (glIsProgram(program->id)) {
 			glDeleteProgram(program->id);
+			program->id = 0;
+		}
 	}
 
 	///////////////////////////////////////////////////////////////////////////////////////
@@ -141,8 +183,10 @@ namespace lofx {
 	}
 
 	void release(Buffer* buffer) {
-		if (glIsBuffer(buffer->id))
+		if (glIsBuffer(buffer->id)) {
 			glDeleteBuffers(1, &buffer->id);
+			buffer->id = 0;
+		}
 	}
 
 	uint8_t attribTypeSize(AttributeType type) {
@@ -182,11 +226,10 @@ namespace lofx {
 		std::size_t total_stride = 0;
 		uint32_t count = 0;
 		for (const auto& attrib : attributes) {
-			if (pack.bufferid == 0)
-				pack.bufferid = attrib.view.buffer.id;
 			pack.attributes[count] = attrib;
 			pack.attributes[count].view.stride = 0;
 			pack.attributes[count].offset = 0;
+			count++;
 		}
 
 		return pack;
@@ -197,8 +240,6 @@ namespace lofx {
 		std::size_t total_stride = 0;
 		uint32_t count = 0;
 		for (const auto& attrib : attributes) {
-			if (pack.bufferid == 0)
-				pack.bufferid = attrib.view.buffer.id;
 			pack.attributes[count] = attrib;
 			pack.attributes[count].offset = total_stride;
 			total_stride += pack.attributes[count].components * attribTypeSize(pack.attributes[count].component_type);
@@ -216,8 +257,6 @@ namespace lofx {
 		std::size_t total_length = 0;
 		uint32_t count = 0;
 		for (const auto& attrib : attributes) {
-			if (pack.bufferid == 0)
-				pack.bufferid = attrib.view.buffer.id;
 			pack.attributes[count] = attrib;
 			pack.attributes[count].offset = total_length;
 			total_length += pack.attributes[count].components * pack.attributes[count].count * attribTypeSize(pack.attributes[count].component_type);
@@ -377,8 +416,10 @@ namespace lofx {
 	}
 
 	void release(Texture* texture) {
-		if (glIsTexture(texture->id))
+		if (glIsTexture(texture->id)) {
 			glDeleteTextures(1, &texture->id);
+			texture->id = 0;
+		}
 	}
 
 	TextureSampler createTextureSampler(const TextureSamplerParameters& parameters) {
@@ -404,8 +445,10 @@ namespace lofx {
 	}
 	
 	void release(TextureSampler* sampler) {
-		if (glIsSampler(sampler->id))
+		if (glIsSampler(sampler->id)) {
 			glDeleteSamplers(1, &sampler->id);
+			sampler->id = 0;
+		}
 	}
 
 	///////////////////////////////////////////////////////////////////////////////////////
@@ -422,8 +465,10 @@ namespace lofx {
 	}
 
 	void release(Renderbuffer* renderbuffer) {
-		if (glIsRenderbuffer(renderbuffer->id))
+		if (glIsRenderbuffer(renderbuffer->id)) {
 			glDeleteRenderbuffers(1, &renderbuffer->id);
+			renderbuffer->id = 0;
+		}
 	}
 
 	Framebuffer createFramebuffer() {
@@ -510,8 +555,10 @@ namespace lofx {
 	}
 
 	void release(Framebuffer* framebuffer) {
-		if (glIsFramebuffer(framebuffer->id))
+		if (glIsFramebuffer(framebuffer->id)) {
 			glDeleteFramebuffers(1, &framebuffer->id);
+			framebuffer->id = 0;
+		}
 	}
 
 	uint8_t* read(Framebuffer* framebuffer, uint32_t attachment, std::size_t width, std::size_t height, ImageDataFormat format, ImageDataType data_type) {
@@ -536,7 +583,41 @@ namespace lofx {
 		glFinish();
 	}
 
+	inline void glfwerrorcb(int errcode, const char* msg) {
+		DebugMessageDetails details{ DebugLevel::Error, DebugSource::Glfw };
+		GlfwErrorParams params;
+		params.errcode = errcode;
+		serialize(&details.params, reinterpret_cast<uint8_t*>(&params), sizeof(params));
+		detail::state.debug_callback(details, std::string(msg));
+	}
+
+	inline void APIENTRY glmessagecb(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length, const GLchar *message, const void *userParam) {
+		OpenGLErrorParams params;
+		
+		DebugLevel level;
+		switch (severity) {
+			case GL_DEBUG_SEVERITY_NOTIFICATION: level = DebugLevel::Trace; break;
+			case GL_DEBUG_SEVERITY_LOW: level = DebugLevel::Warn; break;
+			case GL_DEBUG_SEVERITY_MEDIUM: level = DebugLevel::Warn; break;
+			case GL_DEBUG_SEVERITY_HIGH: level = DebugLevel::Error; break;
+		}
+
+		DebugMessageDetails details = DebugMessageDetails{ level, DebugSource::OpenGL };
+		params.severity = severity;
+		params.type = type;
+		params.source = source;
+
+		serialize(&details.params, reinterpret_cast<uint8_t*>(&params), sizeof(params));
+		detail::state.debug_callback(details, std::string(message));
+	}
+
 	void init(const glm::u32vec2& size, const std::string& glversion, bool invisible) {
+		
+		// Setup debug callbacks
+		// ----------------------
+
+		glfwSetErrorCallback(glfwerrorcb);
+
 		if (!glfwInit()) {
 			detail::yell("GLFW init failed");
 			exit(-1);
@@ -549,6 +630,7 @@ namespace lofx {
 			glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, major);
 			glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, minor);
 		}
+		glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, true);
 
 		glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 		detail::state.window = glfwCreateWindow(size.x, size.y, "", nullptr, nullptr);
@@ -557,6 +639,26 @@ namespace lofx {
 		if (gl3wInit()) {
 			detail::yell("Failed to load OpenGL");
 			exit(-1);
+		}
+
+		if (glDebugMessageCallback) {
+			glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
+			glDebugMessageCallback(glmessagecb, nullptr);
+			GLuint unusedIds = 0;
+			glDebugMessageControl(GL_DONT_CARE,
+				GL_DONT_CARE,
+				GL_DONT_CARE,
+				0,
+				&unusedIds,
+				true);
+
+			// Remove perf message
+			glDebugMessageControl(GL_DONT_CARE,
+				GL_DEBUG_TYPE_PERFORMANCE,
+				GL_DONT_CARE,
+				0,
+				&unusedIds,
+				false);
 		}
 
 		int context_major = 0, context_minor = 0;
@@ -587,11 +689,14 @@ namespace lofx {
 		glfwSwapBuffers(detail::state.window);
 	}
 
-	void clear(Framebuffer* framebuffer, const ClearProperties& properties) {
-		if (!framebuffer)
-			glBindFramebuffer(GL_FRAMEBUFFER, 0);
-		else
-			glBindFramebuffer(GL_FRAMEBUFFER, framebuffer->id);
+	void clear(const Framebuffer* framebuffer, const ClearProperties& properties) {
+
+		if (detail::state.lastdraw.fbo != framebuffer) {
+			if (!framebuffer)
+				glBindFramebuffer(GL_FRAMEBUFFER, 0);
+			else
+				glBindFramebuffer(GL_FRAMEBUFFER, framebuffer->id);
+		}
 
 		glClearColor(properties.color.r, properties.color.g, properties.color.b, properties.color.a);
 		glClearDepth(properties.depth);
@@ -601,31 +706,32 @@ namespace lofx {
 			| (properties.clear_depth ? GL_DEPTH_BUFFER_BIT : 0)
 			| (properties.clear_stencil ? GL_STENCIL_BUFFER_BIT : 0);
 		glClear(clearflags);
-
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	}
 
 	void draw(const DrawProperties& properties) {
-		if (!properties.fbo)
-			glBindFramebuffer(GL_FRAMEBUFFER, 0);
-		else
-			glBindFramebuffer(GL_FRAMEBUFFER, properties.fbo->id);
+		if (detail::state.lastdraw.fbo && properties.fbo && detail::state.lastdraw.fbo->id != properties.fbo->id) {
+			if (!properties.fbo)
+				glBindFramebuffer(GL_FRAMEBUFFER, 0);
+			else
+				glBindFramebuffer(GL_FRAMEBUFFER, properties.fbo->id);
+		}
 
-		const GraphicsProperties& gfxprop = properties.graphics_properties;
+		if (detail::state.lastdraw.graphics_properties != properties.graphics_properties) {
+			const GraphicsProperties& gfxprop = properties.graphics_properties;
 
-		if (gfxprop.depth_test) glEnable(GL_DEPTH_TEST);
-		else glDisable(GL_DEPTH_TEST);
+			if (gfxprop.depth_test) glEnable(GL_DEPTH_TEST);
+			else glDisable(GL_DEPTH_TEST);
 
-		if (gfxprop.faceculling_test) glEnable(GL_CULL_FACE);
-		else glDisable(GL_CULL_FACE);
+			if (gfxprop.faceculling_test) glEnable(GL_CULL_FACE);
+			else glDisable(GL_CULL_FACE);
 
-		if (gfxprop.stencil_test) glEnable(GL_STENCIL_TEST);
-		else glDisable(GL_STENCIL_TEST);
+			if (gfxprop.stencil_test) glEnable(GL_STENCIL_TEST);
+			else glDisable(GL_STENCIL_TEST);
 
-		glFrontFace(gfxprop.frontface == FrontFace::ClockWise ? GL_CW : GL_CCW);
-		glCullFace(gfxprop.cullface == CullFace::Front ? GL_FRONT : gfxprop.cullface == CullFace::Back ? GL_BACK : GL_FRONT_AND_BACK);
+			glFrontFace(gfxprop.frontface == FrontFace::ClockWise ? GL_CW : GL_CCW);
+			glCullFace(gfxprop.cullface == CullFace::Front ? GL_FRONT : gfxprop.cullface == CullFace::Back ? GL_BACK : GL_FRONT_AND_BACK);
+		}
 
-		lofx::use(properties.pipeline);
 		lofx::bind(properties.attributes);
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, properties.indices->view.buffer.id);
 
@@ -633,22 +739,17 @@ namespace lofx {
 		for (const auto& pair : properties.textures) {
 			glActiveTexture(GL_TEXTURE0 + count);
 
-			if (glIsSampler(pair.second->sampler.id))
-				glBindSampler(count, pair.second->sampler.id);
+			if (glIsSampler(pair.second.sampler.id))
+				glBindSampler(count, pair.second.sampler.id);
 
-			for (const auto& stage : properties.pipeline->stages) {
-				if (stage->uniform_locations.count(pair.first))
-					send(stage, Uniform(pair.first, count));
-			}
-
-			glBindTexture(gl::translate(pair.second->target), pair.second->id);
+			send(&properties.pipeline, Uniform(pair.first, count));
+			glBindTexture(gl::translate(pair.second.target), pair.second.id);
 
 			count++;
 		}
 
 		glActiveTexture(GL_TEXTURE0);
 		glDrawElements(GL_TRIANGLES, (GLsizei) properties.indices->count, gl::translate(properties.indices->component_type), (const void*) properties.indices->view.stride);
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	}
 
 	void setdbgCallback(const debug_callback_t& callback) {
